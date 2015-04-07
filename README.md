@@ -1,4 +1,4 @@
-#Read Me for Messages Corpus Bash and R scripts
+##Read Me for Messages Corpus Bash and R scripts
 
 Bash script:
 
