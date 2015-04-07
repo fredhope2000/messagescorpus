@@ -1,0 +1,100 @@
+#!/bin/bash
+
+#usage: ./convertichatsv1 /path/to/messages/logs/*
+#e.g. ./convertichatsv1 /Users/username/Library/Containers/com.apple.iChat/Data/Library/Messages/Archive/2014*/Bob*
+
+#you have to at least include one file to copy; otherwise exit with an error
+if [ -z "$1" ]; then
+echo No input file specified.
+exit 0
+fi
+renamefiles=0
+
+#create a folder to store the converted copies of the log files
+mkdir -p "/Users/username/messagescorpus/"
+cd /
+cd "/Users/username/messagescorpus/"
+
+#comment out the following bit in the rare case that you meant to use / as the directory for your message log files; it's meant to just be a safety check to see we were able to cd into the correct directory
+if [[ "$PWD" == "/" ]]; then
+echo Error creating or cd-ing into proper directory.
+exit 0
+fi
+
+filescopied=0
+duplicatesremoved=0
+
+#for each input file, append an ID number to the end of the converted file, to avoid overwriting files of the same name
+#ignore files starting with "Chat with" as these are group chats, and the messages corpus script only supports individual chats
+i=0
+for inputfile in "$@"
+do
+outputfile=$(basename "${inputfile}" .ichat).icht
+if [[ ( "$outputfile" != Chat\ with\ * ) ]]; then
+outputfile=${outputfile/ on /-}
+outputfile=${outputfile/ at /-}
+outputfile=`printf "%07d" $i`$outputfile
+outputfiles[$i]=$outputfile
+((i++))
+((filescopied++))
+cp "$inputfile" "$outputfile"
+fi
+done
+
+#print a line stating how many files were copied
+if [ "$filescopied" -eq 1 ]; then
+echo $filescopied file copied.
+else
+echo $filescopied files copied.
+fi
+
+duplicatefound=-1
+
+#check for duplicates. if there are duplicates e.g. file-1.icht, file-2.icht, file-3.icht, file.icht (they show up in that order),
+#the one with the highest number should be kept.
+#so, when we find one that has a '-' near the end, keep checking ahead for more, then the first time there isn't one, delete all the duplicates,
+#saving the highest-numbered duplicate file, but with the filename that doesn't have the -# at the end.
+for ((i=0; i<"${#outputfiles[*]}"; i++))
+do
+currentfile=${outputfiles[i]}
+currentfile=${currentfile%?}
+currentfile=${currentfile%?}
+currentfile=${currentfile%?}
+currentfile=${currentfile%?}
+currentfile=${currentfile%?} #probably a better way to do this. each of these lines chops a character off the end of the filename, removing the .icht
+if [[ "${currentfile: -5:5}" ==  *-* ]]; then
+
+if [ "$duplicatefound" -eq -1 ]; then
+duplicatefound=$i #mark the spot of the first duplicate
+fi
+
+else if [ "$duplicatefound" -ne -1 ]; then
+
+goodfile=`expr $i - 1` #since we're now at file.icht, file-3.icht (the previous one in the list) is the one we want to keep (using the above example)
+
+for ((j="$duplicatefound"; j<=i; j++))
+do
+if [ $j -ne $goodfile ]; then
+rm "${outputfiles[$j]}" #remove the ones between the first duplicate we found, and the current file, except for $goodfile
+((duplicatesremoved++))
+fi
+done
+
+duplicatefound=-1
+
+currentfile+=".icht" #put back on the .icht we chopped off earlier
+mv "${outputfiles[$goodfile]}" "$currentfile" #since we kept file-3.icht since it was the newest, rename it to file.icht
+fi
+fi
+
+done
+
+#print a line stating how many duplicate files were removed
+if [ "$duplicatesremoved" -eq 1 ]; then
+echo $duplicatesremoved duplicate removed.
+else
+echo $duplicatesremoved duplicates removed.
+fi
+
+#convert the files from binary to raw XML
+plutil -convert xml1 *
