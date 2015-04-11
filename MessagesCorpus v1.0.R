@@ -119,6 +119,12 @@ getHour <- function(string)
 	return(as.POSIXlt(string)$hour)
 }
 
+neighborhood <- function(index,length=15,table=1)
+{
+	if (length < 1) { length <- 15 }
+	catTables(table=table,start=(index-3),stop=(index+length-4))
+}
+
 #index can be any number within the bounds of tables, or any name in names(tables). use index=0 (default) to search all conversations
 searchCorpus <- function(pattern,index=0,ignore.case=TRUE)
 {
