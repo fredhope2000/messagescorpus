@@ -778,10 +778,16 @@ catTables <- function(table=1,start=1,stop=0)
 			cat(paste("---",names(tables)[table],"---\n",sep=""))
 			if (start != 1 || stop != 0)
 			{
-				if (start >= 1 && start <= length(tables[[table]]) && stop >= start && stop <= length(tables[[table]]))
+				if (start >= 1 && start <= length(tables[[table]]) && stop >= start)
 				{
-					cat(tables[[table]][start:stop],sep="\n")
-					cat("\n")
+					if (stop <= length(tables[[table]]))
+					{
+						cat(tables[[table]][start:stop],sep="\n")
+						cat("\n")
+					} else {
+						cat(tables[[table]][start:length(tables[[table]])],sep="\n")
+						cat("\n")
+					}
 				} else {
 					cat(tables[[table]],sep="\n")
 					cat("\n")
