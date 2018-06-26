@@ -1,4 +1,5 @@
 import datetime
+import json
 import re
 import os
 
@@ -18,6 +19,19 @@ MY_EMAIL = 'fredhope2000@gmail.com'
 MY_CONTACT_INFO_IDS = ['e:', f'e:{MY_EMAIL}', MY_EMAIL]
 MY_NAME = 'Fred Hope'
 MY_SHORT_NAME = 'Fred'
+
+"""
+notes for convertichats:
+exclude "Chat with " in filename (multiway chats)
+f.replace('.ichat', '.icht').replace('.icht', '') or re.sub(r'\.icha?t$', '', f)
+duplicates (ends with -1, -2 etc) are always in the same directory as each other
+keep the duplicate with the highest number, eg if foo, foo-1, and foo-2, keep only foo-2 and rename to foo
+"""
+
+
+
+
+
 
 
 def get_filenames():
@@ -360,7 +374,7 @@ def parse_file(filename, other_name='Dan'):
         sender_id = int(strip_tags(lines[sender_idx]))
         sender = sender_id_mapping[sender_id]
         timestamp_str = strip_tags(lines[timestamp_idx])
-        timestamp = datetime_from_cocoa_time(float(timestamp_str.replace('*', '')))
+        timestamp = datetime_from_cocoa_time(float(timestamp_str.replace('*', ''))).isoformat()
         message = unescape_xml_chars(strip_tags(lines[message_idx]))
         messages.append({
             'sender_id': sender_id,
