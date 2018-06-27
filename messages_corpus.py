@@ -2,6 +2,7 @@ import datetime
 import json
 import re
 import os
+import time
 
 
 """
@@ -12,7 +13,10 @@ Ported to Python from R in 2018
 """
 
 
-MESSAGE_LOG_DIR = '/Users/fred/messagescorpus'
+FILE_SUFFIX = '.ichat'
+RAW_MESSAGE_LOG_DIR = '/Users/fred/Library/Messages/Archive/'
+COPIED_MESSAGE_LOG_DIR = '/Users/fred/messages'
+DUPLICATE_FILE_PATTERN = r'\-[0-9]+$'
 ATTACHMENT_UUID_PATTERN = '<string>[A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12}</string>'
 PHONE_NUMBER_PATTERN = r'<string>\+?[0-9]{10,11}</string>'
 MY_EMAIL = 'fredhope2000@gmail.com'
@@ -31,11 +35,57 @@ keep the duplicate with the highest number, eg if foo, foo-1, and foo-2, keep on
 
 
 
+def dedupe_filenames(filenames):
+    """
+    Duplicate files look like foo.ichat, foo-1.ichat, foo-2.ichat, etc. The highest number is the most recent/complete file.
+    So return just the highest-numbered file in each fileset
+    """
 
+    filenames = sorted([f.replace(FILE_SUFFIX, '') for f in filenames])
+
+    # Keep list and set separate since set ordering is unclear
+    filenames_set = set(filenames)
+
+    # Pairing the filenames up with their stripped counterpart is more efficient than searching through the list various times
+    filename_pairs = [(f, re.sub(DUPLICATE_FILE_PATTERN, '', f)) for f in filenames]
+
+    # Make sure there aren't duplicate-looking files without a base filename also present, as this would be unexpected
+    duplicate_base_filenames = set([f[1] for f in filename_pairs if f[0] != f[1]])
+    assert duplicate_base_filenames <= filenames_set, "Found duplicate filenames whose base doesn't appear"
+
+    filename_mapping = {f[1]: [] for f in filename_pairs}
+    for filename, base_filename in filename_pairs:
+        filename_mapping[base_filename].append(filename)
+
+    deduped_files = []
+    for base_filename, raw_filenames in filename_mapping.items():
+        deduped_files.append(raw_filenames[-1] + FILE_SUFFIX)
+    print(f"Removed {len(filenames) - len(deduped_files)} duplicates.")
+
+    return deduped_files
+
+
+def copy_files():
+    """
+    Grabs the filenames from the raw message archive, dedupes them, copies them to a new location, and decrypts them
+    """
+
+    filenames = []
+    for root, _, files in os.walk(RAW_MESSAGE_LOG_DIR):
+        # Exclude .DS_Store and 'Chat with' which is multiway chats
+        filenames += [os.path.join(root, f) for f in files if not f.startswith('.') and not f.startswith('Chat with')]
+    print(f"Found {len(filenames)} files")
+
+    # The old version of this code looked for .icht as well, but there don't seem to be any files like that anymore.
+    if not all([f.endswith(FILE_SUFFIX) for f in filenames]):
+        raise Exception(f"Unexpected files found without {FILE_SUFFIX} suffix")
+
+    deduped_filenames = dedupe_filenames(filenames)
+    return filenames, deduped_filenames
 
 
 def get_filenames():
-    return [f for f in os.listdir(MESSAGE_LOG_DIR) if f.endswith('.icht')]
+    return [f for f in os.listdir(COPIED_MESSAGE_LOG_DIR) if f.endswith('.icht')]
 
 
 def index_or_none(l, item, *args):
@@ -374,7 +424,7 @@ def parse_file(filename, other_name='Dan'):
         sender_id = int(strip_tags(lines[sender_idx]))
         sender = sender_id_mapping[sender_id]
         timestamp_str = strip_tags(lines[timestamp_idx])
-        timestamp = datetime_from_cocoa_time(float(timestamp_str.replace('*', ''))).isoformat()
+        timestamp = datetime_from_cocoa_time(float(timestamp_str.replace('*', '')))
         message = unescape_xml_chars(strip_tags(lines[message_idx]))
         messages.append({
             'sender_id': sender_id,
@@ -386,7 +436,7 @@ def parse_file(filename, other_name='Dan'):
             })
     assert len(messages) == len(lines) / 3, f"{len(lines)} lines became {len(messages)} messages"
 
-    return messages
+    return sorted(messages, key=lambda k: k['timestamp'])
 
 
 def parse_all_files(other_name='Dan', quiet=True):
@@ -396,8 +446,7 @@ def parse_all_files(other_name='Dan', quiet=True):
         if not quiet:
             print(f"Parsing {f}")
         messages += parse_file(f, other_name)
-    messages = sorted(messages, key=lambda k: k['timestamp'])
-    return messages
+    return sorted(messages, key=lambda k: k['timestamp'])
 
 
 """
