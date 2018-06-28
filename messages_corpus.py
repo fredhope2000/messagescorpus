@@ -2,7 +2,9 @@ import datetime
 import json
 import re
 import os
+import subprocess
 import time
+import tqdm
 
 
 """
@@ -12,13 +14,23 @@ Copyright 2014 by Fred Hope, in collaboration with Mark Myslin.
 Ported to Python from R in 2018
 """
 
+times = [0, 0, 0, 0, 0, 0, 0, 0]
 
 FILE_SUFFIX = '.ichat'
-RAW_MESSAGE_LOG_DIR = '/Users/fred/Library/Messages/Archive/'
+START_YEAR = 2012
+CURRENT_YEAR = datetime.datetime.utcnow().year
+RAW_MESSAGE_LOG_DIR = '/Users/fred/Library/Messages/Archive'
 COPIED_MESSAGE_LOG_DIR = '/Users/fred/messages'
-DUPLICATE_FILE_PATTERN = r'\-[0-9]+$'
-ATTACHMENT_UUID_PATTERN = '<string>[A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12}</string>'
-PHONE_NUMBER_PATTERN = r'<string>\+?[0-9]{10,11}</string>'
+DUPLICATE_FILE_PATTERN = re.compile(r'\-[0-9]+$')
+OTHER_NAME_PATTERN = re.compile('[0-9]{4}-[0-9]{2}-[0-9]{2}_\u202a?([^\u202c]+)\u202c? on [0-9]{4}-[0-9]{2}-[0-9]{2} at ')
+TAB_PADDING_PATTERN = re.compile('^\t+<')
+ATTACHMENT_UUID_PATTERN = re.compile('<string>[A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12}</string>')
+DATA_PATTERN = re.compile('\t\t\t[A-Za-z0-9/+]{52}')
+NBSP_PATTERN = re.compile('(\\w)\xa0(\\w)')
+AUTOMATED_SENDER_PATTERN = re.compile(r'^\d{5}$|^\d{12}$')
+PHONE_NUMBER_PATTERN = re.compile(r'<string>\+?[0-9]{10,11}</string>')
+INFERRED_TIMESTAMP_PATTERN = re.compile(r'\*?<\/real>')
+TAG_PATTERN = re.compile(r'<(\w+)>')
 MY_EMAIL = 'fredhope2000@gmail.com'
 MY_CONTACT_INFO_IDS = ['e:', f'e:{MY_EMAIL}', MY_EMAIL]
 MY_NAME = 'Fred Hope'
@@ -33,12 +45,32 @@ keep the duplicate with the highest number, eg if foo, foo-1, and foo-2, keep on
 """
 
 
+"""
+after 7/25/2014, the duplication issue is gone! we should instead keep all the files.
+maybe check if we can just dedupe after processing them so we don't de-dupe at the file level at all?
+"""
+
+def decrypt_files(filenames):
+    """
+    Decrypts each file in `filenames` and places in COPIED_MESSAGE_LOG_DIR with a unique filename
+    """
+
+    print("Decrypting...")
+    output_files = []
+    for f in tqdm.tqdm(filenames):
+        dirname = os.path.basename(os.path.dirname(f))  # eg 2018-01-04
+        base_output_filename = dirname + '_' + os.path.basename(f)
+        output_filename = os.path.join(COPIED_MESSAGE_LOG_DIR, base_output_filename)
+        subprocess.check_call(['plutil', '-convert', 'xml1', f, '-o', output_filename])
+        output_files.append(base_output_filename)
+    return output_files
 
 
 def dedupe_filenames(filenames):
     """
-    Duplicate files look like foo.ichat, foo-1.ichat, foo-2.ichat, etc. The highest number is the most recent/complete file.
-    So return just the highest-numbered file in each fileset
+    Duplicate files look like foo.ichat, foo-1.ichat, foo-2.ichat, etc. Prior to 7/25/2014, the highest number is the most recent/complete file,
+    so return just the highest-numbered file in each fileset. After 7/25/2014, the files are distinct (and just happen to have the same name),
+    so return all the files in the fileset.
     """
 
     filenames = sorted([f.replace(FILE_SUFFIX, '') for f in filenames])
@@ -59,21 +91,30 @@ def dedupe_filenames(filenames):
 
     deduped_files = []
     for base_filename, raw_filenames in filename_mapping.items():
-        deduped_files.append(raw_filenames[-1] + FILE_SUFFIX)
+        if re.search(' on ([0-9]{4}-[0-9]{2}-[0-9]{2}) at ', base_filename).group(1) >= '2014-07-25':
+            for f in raw_filenames:
+                deduped_files.append(f + FILE_SUFFIX)
+        else:
+            deduped_files.append(raw_filenames[-1] + FILE_SUFFIX)
     print(f"Removed {len(filenames) - len(deduped_files)} duplicates.")
 
     return deduped_files
 
 
-def copy_files():
+def copy_files(years=None):
     """
-    Grabs the filenames from the raw message archive, dedupes them, copies them to a new location, and decrypts them
+    Grabs the filenames from the raw message archive, dedupes them, copies them to a new location, and decrypts them.
+    The decrypting is kind of slow, so we can just do files for a certain year and keep the rest.
     """
 
+    if years is None:
+        years = [str(year) for year in range(START_YEAR, CURRENT_YEAR + 1)]
+    print(f"Copying files for year(s) {years}")
+    year_strs = [f' on {year}-' for year in years]  # eg "Fred Hope on 2018-01-01 at 16.17.18"
     filenames = []
     for root, _, files in os.walk(RAW_MESSAGE_LOG_DIR):
         # Exclude .DS_Store and 'Chat with' which is multiway chats
-        filenames += [os.path.join(root, f) for f in files if not f.startswith('.') and not f.startswith('Chat with')]
+        filenames += [os.path.join(root, f) for f in files if not f.startswith('.') and not f.startswith('Chat with') and any([year_str in f for year_str in year_strs])]
     print(f"Found {len(filenames)} files")
 
     # The old version of this code looked for .icht as well, but there don't seem to be any files like that anymore.
@@ -81,11 +122,12 @@ def copy_files():
         raise Exception(f"Unexpected files found without {FILE_SUFFIX} suffix")
 
     deduped_filenames = dedupe_filenames(filenames)
-    return filenames, deduped_filenames
+    decrypted_files = decrypt_files(deduped_filenames)
+    return decrypted_files
 
 
 def get_filenames():
-    return [f for f in os.listdir(COPIED_MESSAGE_LOG_DIR) if f.endswith('.icht')]
+    return [f for f in os.listdir(COPIED_MESSAGE_LOG_DIR) if f.endswith(FILE_SUFFIX)]
 
 
 def index_or_none(l, item, *args):
@@ -105,7 +147,8 @@ def first_regex_match(l, pat):
     Returns the first regex match of `pat` in a list, or None if no matches.
     """
 
-    matches = [i for i in l if re.search(pat, i)]
+    pat_compiled = re.compile(pat)
+    matches = [i for i in l if pat.search(i)]
     return matches[0] if matches else None
 
 
@@ -140,13 +183,9 @@ def strip_tags(s):
     Strips the XML tag on both ends of a string, including the brackets and closing slash
     """
 
-    tag = re.match(r'<(\w+)>', s).group(1)
+    tag = TAG_PATTERN.match(s).group(1)
     s = s.replace(f'<{tag}>', '').replace(f'</{tag}>', '')
     return s
-
-
-def is_contact_info_line(line):
-    return re.match(PHONE_NUMBER_PATTERN, line) or strip_tags(line) in MY_CONTACT_INFO_IDS
 
 
 def datetime_from_cocoa_time(ts):
@@ -204,26 +243,49 @@ def unescape_xml_chars(s):
         ('\xa0', ''),
     ]
 
-    s = re.sub('(\\w)\xa0(\\w)', r'\1 \2', s)
+    s = NBSP_PATTERN.sub(r'\1 \2', s)
     for escaped, real in escape_chars:
         s = s.replace(escaped, real)
     s = s.replace('\xa0', '')
     return s
 
 
-def parse_file(filename, other_name='Dan'):
-    with open('/Users/fred/messagescorpus/' + filename, 'r') as f:
-        lines = f.read().splitlines()
+def other_name_from_filename(filename):
+    return OTHER_NAME_PATTERN.search(filename).group(1)
 
+
+def parse_file(filename, other_name=None):
+    global times
+    now = time.time()
+    other_name = other_name or other_name_from_filename(filename)
+    times[0] += time.time() - now
+
+    def is_contact_info_line(line):
+        return bool(PHONE_NUMBER_PATTERN.match(line) or strip_tags(line) in MY_CONTACT_INFO_IDS or (AUTOMATED_SENDER_PATTERN.match(other_name) and strip_tags(line) == other_name))
+
+    now = time.time()
+    with open(os.path.join(COPIED_MESSAGE_LOG_DIR, filename), 'r') as f:
+        lines = f.readlines()
+    lines = [l.rstrip('\n') for l in lines]
+
+    times[1] += time.time() - now
+    now = time.time()
     # Remove lines containing blocks of 52 alphanumeric chars, this represents data e.g. attachments.
     # We don't actually have to catch all of them, this is just an initial stripdown for performance.
-    lines = [l for l in lines if not re.match('\t\t\t[A-Za-z0-9/+]{52}', l)]
+    # Doing it without regex as the regex is way slower
+    # lines = [l for l in lines if not DATA_PATTERN.match(l)]
+    lines = [l for l in lines if not (l.startswith('\t\t\t') and len(l) == 55 and ' ' not in l and '<' not in l)]
+
+    times[2] += time.time() - now
+    now = time.time()
 
     # Remove tab padding
-    lines = [re.sub('^\t+<', '<', l) for l in lines]
+    lines = [TAB_PADDING_PATTERN.sub('<', l) for l in lines]
 
     # Remove any blank lines
     lines = [l for l in lines if l]
+    times[3] += time.time() - now
+    now = time.time()
 
     # Each file should contain a E: <string> value (sometimes E:myEmail or similar)
     # Make sure it's what we want by checking the previous line for a UUID.
@@ -234,11 +296,13 @@ def parse_file(filename, other_name='Dan'):
     while True:
         if i >= len(lines):
             break
-        if lines[i].startswith('<string>E:') and re.match(ATTACHMENT_UUID_PATTERN, lines[i-1]):
+        if lines[i].startswith('<string>E:') and ATTACHMENT_UUID_PATTERN.match(lines[i-1]):
             # Skip the SMS line if there is one, this isn't helpful
             conversation_search_idx = i+2 if lines[i+1] == '<string>SMS</string>' else i+1
             conversation_started_by.append(strip_tags(first_substr_match(lines[conversation_search_idx:], '<string>')))
         i += 1
+    times[4] += time.time() - now
+    now = time.time()
 
     # If a message has a newline in it, this ends up on the next line of the file, without any XML prefix.
     # Concat them together by pasting the second line onto the first and removing the second line.
@@ -255,6 +319,8 @@ def parse_file(filename, other_name='Dan'):
             lines[idx] = lines[idx] + '\n' + lines[idx+1]
 
         lines = [l for idx, l in enumerate(lines) if idx-1 not in runover_lines]
+    times[5] += time.time() - now
+    now = time.time()
 
     # Throw out irrelevant lines
     relevant_strings = ['<key>NS.time', '<key>NS.string', '<key>Sender</key>', '<string>', '<real>', '<integer>']
@@ -269,9 +335,10 @@ def parse_file(filename, other_name='Dan'):
         if i >= len(lines) - 1:
             break
         if MY_EMAIL in lines[i] and first_substr_match(lines[(i+1):], MY_EMAIL) == f'<string>mailto:{MY_EMAIL}</string>':
-            print("Found my email but it appears to be an actual message. Preserving.")
             lines[i] = lines[i].replace('@', '&at;')
         i += 1
+    times[6] += time.time() - now
+    now = time.time()
 
     # The key pieces of information are message, timestamp, and sender. These are represented by (for example, for timestamps) a <key>NS.time</key> followed by a <real>123456789</real>.
     # So keep <string>.* and <real>.* and <integer>.* lines only if they follow NS.string, NS.time, or Sender lines respectively
@@ -289,14 +356,16 @@ def parse_file(filename, other_name='Dan'):
             lines.pop(i)
             continue
         i += 1
+    times[7] += time.time() - now
+    now = time.time()
 
     # Now that we know which <string>, <real>, and <integer> lines to keep, we can get rid of the <key> lines
     lines = [l for l in lines if not l.startswith('<key>')]
 
     # Attachments are represented by a UUID and/or an object-replacement character, depending on the version of Messages.
     # Replace them with (MEDIA)
-    lines = [re.sub(ATTACHMENT_UUID_PATTERN, '<string>(MEDIA)</string>', l) for l in lines]
-    lines = [re.sub(chr(65532), '(MEDIA)', l) for l in lines]
+    lines = [ATTACHMENT_UUID_PATTERN.sub('<string>(MEDIA)</string>', l) for l in lines]
+    lines = [l.replace(chr(65532), '(MEDIA)') for l in lines]
 
     # If a (MEDIA) message immediately follows a regular message (they were sent together), concatenate them
     i = 0
@@ -359,8 +428,10 @@ def parse_file(filename, other_name='Dan'):
                 lines.pop(i+1)
                 continue
             else:
-                lines = lines[:(i+1)] + [re.sub(r'\*?<\/real>', '*</real>', latest_timestamp)] + lines[(i+1):]
+                lines = lines[:(i+1)] + [INFERRED_TIMESTAMP_PATTERN.sub('*</real>', latest_timestamp)] + lines[(i+1):]
         i += 1
+    times[4] += time.time() - now
+    now = time.time()
 
     # Remove the last line, if it's the other person's phone/email (it often is), repeatedly
     while not lines[-3].startswith('<integer>') and not lines[-2].startswith('<integer>') and lines[-1].startswith('<string>') and is_contact_info_line(lines[-1]):
@@ -399,6 +470,8 @@ def parse_file(filename, other_name='Dan'):
                 raise Exception(f"""Lines {i} and {i+1}, "{lines[i]}" and "{lines[i+1]}", both start with <string> but aren't recognized as contact info""")
             continue
         i += 1
+    times[5] += time.time() - now
+    now = time.time()
 
     sender_ids = sorted(list(set([int(strip_tags(l)) for l in lines if l.startswith('<integer>')])))
 
@@ -435,18 +508,29 @@ def parse_file(filename, other_name='Dan'):
             'meta': meta,
             })
     assert len(messages) == len(lines) / 3, f"{len(lines)} lines became {len(messages)} messages"
+    times[6] += time.time() - now
 
     return sorted(messages, key=lambda k: k['timestamp'])
 
 
-def parse_all_files(other_name='Dan', quiet=True):
+def parse_all_files(quiet=True):
     filenames = get_filenames()
-    messages = []
-    for f in filenames:
+    messages = {}
+    for f in tqdm.tqdm(filenames):
+        other_name = other_name_from_filename(f)
         if not quiet:
             print(f"Parsing {f}")
-        messages += parse_file(f, other_name)
-    return sorted(messages, key=lambda k: k['timestamp'])
+        try:
+            new_messages = parse_file(f, other_name=other_name)
+        except Exception:
+            print(f"Error parsing {f}")
+            raise
+        messages[other_name] = messages.get(other_name, []) + new_messages
+
+    for other_name in messages:
+        messages[other_name] = sorted(messages[other_name], key=lambda k: k['timestamp'])
+
+    return messages
 
 
 """
