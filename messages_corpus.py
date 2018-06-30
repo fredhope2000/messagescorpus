@@ -220,7 +220,7 @@ def generate_sender_id_mapping(sender_ids, conversation_started_by, other_name):
         # Two threads (SMS and iMessage)
         person_order = [(MY_SHORT_NAME, other_name) if c in MY_CONTACT_INFO_IDS else (other_name, MY_SHORT_NAME) for c in conversation_started_by]
         if len(sender_ids) == 1:  # One person, not sure why the second thread starts
-            print(f"Warning: sender_ids {sender_ids} found with conversation_started_by {conversation_started_by}, expecting between 2 and 4 sender ids")
+            # print(f"Warning: sender_ids {sender_ids} found with conversation_started_by {conversation_started_by}, expecting between 2 and 4 sender ids")
             return {sender_ids[0]: person_order[0][0]}
         elif len(sender_ids) == 2:  # One person per thread
             return {sender_ids[0]: person_order[0][0], sender_ids[1]: person_order[1][0]}
