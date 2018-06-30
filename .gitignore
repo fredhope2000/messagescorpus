@@ -2,3 +2,5 @@
 **/.Rhistory
 name_groups.json
 data/**
+__pycache__/**
+**.pyc
