@@ -17,6 +17,7 @@ R script:
 
 ###New Setup
 
-- import the Python script and use the `copy_files`, `parse_files`, or `copy_and_parse_files` functions to parse iMessage logs into Python objects of messages.
+- Requirements: Python 3 and packages listed in requirements.txt
+- Import the Python script and use the `copy_files`, `parse_files`, or `copy_and_parse_files` functions to parse iMessage logs into Python objects of messages.
 
 See www.fredhope.com/messagescorpus or email fredhope2000@gmail.com for more information.
