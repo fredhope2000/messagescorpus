@@ -16,11 +16,29 @@ Ported to Python from R in 2018
 """
 
 
-FILE_SUFFIX = '.ichat'
+# Default year to start looking for messages in the copy functions, if no year is specified
 START_YEAR = 2012
+
+# Where the copied/decrypted files should go. The default, "data" in the repo's base folder, is git-ignored
+COPIED_MESSAGE_LOG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data')
+
+# Modify these based on your iCloud/iMessage information
+MY_EMAIL = 'fredhope2000@gmail.com'
+MY_NAME = 'Fred Hope'
+
+MY_CONTACT_INFO_IDS = ['e:', f'e:{MY_EMAIL}', MY_EMAIL]
+
+# How your messages will appear in the parsed logs
+MY_DISPLAY_NAME = 'Fred'
+
+# Include any non-standard phone numbers here that show up in your logs
+OTHER_FORMATTED_NUMBERS = ['+90 (008) 000 40 07', '+1 900080005330']
+OTHER_RAW_NUMBERS = ['900080004007', '1900080005330']
+
+# Shouldn't need to modify any of these, unless you have stuff in your logs I haven't accounted for
+FILE_SUFFIX = '.ichat'
 CURRENT_YEAR = datetime.datetime.utcnow().year
-RAW_MESSAGE_LOG_DIR = '/Users/fred/Library/Messages/Archive'
-COPIED_MESSAGE_LOG_DIR = '/Users/fred/messages'
+RAW_MESSAGE_LOG_DIR = os.path.join(os.environ['HOME'], 'Library', 'Messages', 'Archive')
 DUPLICATE_FILE_PATTERN = re.compile(r'\-[0-9]+$')
 OTHER_NAME_PATTERN = re.compile('[0-9]{4}-[0-9]{2}-[0-9]{2}_\u202a?([^\u202c]+)\u202c? on [0-9]{4}-[0-9]{2}-[0-9]{2} at ')
 TAB_PADDING_PATTERN = re.compile('^\t+<')
@@ -33,12 +51,6 @@ BARE_PHONE_NUMBER_PATTERN = re.compile(r'<string>[0-9]{10}</string>')
 EMAIL_PATTERN = re.compile(r'^[^ @]+@[^ @.]+\.[^ @]+$')
 INFERRED_TIMESTAMP_PATTERN = re.compile(r'\*?<\/real>')
 TAG_PATTERN = re.compile(r'<(\w+)>')
-VERIZON_FORMATTED_NUMBERS = ['+90 (008) 000 40 07', '+1 900080005330']
-VERIZON_RAW_NUMBERS = ['900080004007', '1900080005330']
-MY_EMAIL = 'fredhope2000@gmail.com'
-MY_CONTACT_INFO_IDS = ['e:', f'e:{MY_EMAIL}', MY_EMAIL]
-MY_NAME = 'Fred Hope'
-MY_SHORT_NAME = 'Fred'
 
 
 def get_name_groups():
@@ -71,6 +83,8 @@ def decrypt_file(filename):
     dirname = os.path.basename(os.path.dirname(filename))  # eg 2018-01-04
     base_output_filename = dirname + '_' + os.path.basename(filename)
     output_filename = os.path.join(COPIED_MESSAGE_LOG_DIR, base_output_filename)
+    if not os.path.isdir(COPIED_MESSAGE_LOG_DIR):
+        os.mkdir(COPIED_MESSAGE_LOG_DIR)
     subprocess.check_call(['plutil', '-convert', 'xml1', filename, '-o', output_filename])
     return base_output_filename
 
@@ -110,7 +124,7 @@ def dedupe_filenames(filenames):
     return deduped_files
 
 
-def copy_files(years=None):
+def copy_files(years=None, return_filenames=False):
     """
     Grabs the filenames from the raw message archive, dedupes them, copies them to a new location, and decrypts them.
     The decrypting is kind of slow, so we can just do files for a certain year and keep the rest.
@@ -140,7 +154,9 @@ def copy_files(years=None):
             output_files.append(output_file)
     print("\nDecrypted {files} files in {seconds:.02f} seconds".format(files=len(output_files), seconds=time.time() - now))
 
-    return output_files
+    if return_filenames:
+        return output_files
+    return
 
 
 def get_filenames():
@@ -218,7 +234,7 @@ def datetime_from_cocoa_time(ts):
 def generate_sender_id_mapping(sender_ids, conversation_started_by, other_name):
     if len(conversation_started_by) == 1:
         # Just one thread (iMessage or SMS but not both). Lower sender id is the person who started the thread
-        person_order = (MY_SHORT_NAME, other_name) if conversation_started_by[0] in MY_CONTACT_INFO_IDS else (other_name, MY_SHORT_NAME)
+        person_order = (MY_DISPLAY_NAME, other_name) if conversation_started_by[0] in MY_CONTACT_INFO_IDS else (other_name, MY_DISPLAY_NAME)
         if len(sender_ids) == 1:  # Just one person total
             return {sender_ids[0]: person_order[0]}
         elif len(sender_ids) == 2:  # Both people
@@ -227,7 +243,7 @@ def generate_sender_id_mapping(sender_ids, conversation_started_by, other_name):
             raise Exception(f"sender_ids {sender_ids} found with conversation_started_by {conversation_started_by}, expecting between 1 and 2 sender ids")
     elif len(conversation_started_by) == 2:
         # Two threads (SMS and iMessage)
-        person_order = [(MY_SHORT_NAME, other_name) if c in MY_CONTACT_INFO_IDS else (other_name, MY_SHORT_NAME) for c in conversation_started_by]
+        person_order = [(MY_DISPLAY_NAME, other_name) if c in MY_CONTACT_INFO_IDS else (other_name, MY_DISPLAY_NAME) for c in conversation_started_by]
         if len(sender_ids) == 1:  # One person, not sure why the second thread starts
             # print(f"Warning: sender_ids {sender_ids} found with conversation_started_by {conversation_started_by}, expecting between 2 and 4 sender ids")
             return {sender_ids[0]: person_order[0][0]}
@@ -272,8 +288,7 @@ def unescape_xml_chars(s):
 
 def get_primary_other_name(name):
     """
-    Checks the name groups to find the primary name associated with this name. For example mmyslin@gmail.com is part of the 'Mark'
-    group so it should be associated with Mark.
+    Checks the name groups to find the primary name associated with this name.
     """
 
     if name in NAME_GROUPS:
@@ -341,7 +356,7 @@ def parse_file(filename):
                 or strip_tags(line) in MY_CONTACT_INFO_IDS
                 or strip_tags(line) in conversation_started_by
                 or (AUTOMATED_SENDER_PATTERN.match(other_name) and strip_tags(line) == other_name)
-                or (other_name in VERIZON_FORMATTED_NUMBERS and strip_tags(line) in VERIZON_RAW_NUMBERS)
+                or (other_name in OTHER_FORMATTED_NUMBERS and strip_tags(line) in OTHER_RAW_NUMBERS)
                 or any((EMAIL_PATTERN.match(name) and strip_tags(line) == name.lower()) for name in all_other_name_emails))
 
         # If a message has a newline in it, this ends up on the next line of the file, without any XML prefix.
@@ -574,15 +589,13 @@ def parse_files(filenames=None):
     return messages
 
 
-def copy_and_parse_files(years=None, include_previous=True):
+def copy_and_parse_files(years=None, parse_copied_files_only=False):
     """
     Copies/decrypts files for the specified years, and parses them to get the messages.
     Basically a combination of copy_files() and parse_files()
-    If include_previous, parse all the files, even those that were already in the directory.
+    If parse_copied_files_only, parse only the files that were copied, even if others exist in the directory.
     """
 
-    filenames = copy_files(years=years)
-    if include_previous:
-        filenames = get_filenames()
+    filenames = copy_files(years=years, return_filenames=parse_copied_files_only)
     messages = parse_files(filenames)
     return messages
