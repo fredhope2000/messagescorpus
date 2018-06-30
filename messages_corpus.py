@@ -577,17 +577,3 @@ def copy_and_parse_files(years=None, include_previous=True):
         filenames = get_filenames()
     messages = parse_files(filenames)
     return messages
-
-
-"""
-notes:
-conversation_started_by:
-treats SMS and iMessage as separate threads
-emails/phone numbers are iMessage, "SMS" is SMS by either person
-for SMS, look at the next string (usually after an NS.string but once I saw it as e: immediately next line) after the SMS string
-
-sender ids:
-within each thread (iMessage vs SMS), lower sender id is the thread starter
-if I start a message with iMessage (eg sender id 6) and then DB replies with SMS, his sender id is higher (eg 57) because that's a different thread, if he later has an iMessage then the iMessage is a lower sender id (eg 11)
-whichever medium is first (iMessage or SMS) has lower sender ids, eg I start with SMS, my sender id is 6, DB replies with iMessage, his sender id is 46, then I reply with iMessage, mine is 50
-"""
