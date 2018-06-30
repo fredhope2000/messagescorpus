@@ -35,6 +35,9 @@ MY_DISPLAY_NAME = 'Fred'
 OTHER_FORMATTED_NUMBERS = ['+90 (008) 000 40 07', '+1 900080005330']
 OTHER_RAW_NUMBERS = ['900080004007', '1900080005330']
 
+# Debug mode will include more info with each message, like the filename and sender id logic
+DEBUG_MODE = False
+
 # Shouldn't need to modify any of these, unless you have stuff in your logs I haven't accounted for
 FILE_SUFFIX = '.ichat'
 CURRENT_YEAR = datetime.datetime.utcnow().year
@@ -159,8 +162,12 @@ def copy_files(years=None, return_filenames=False):
     return
 
 
-def get_filenames():
-    return [f for f in os.listdir(COPIED_MESSAGE_LOG_DIR) if f.endswith(FILE_SUFFIX)]
+def get_filenames(years=None):
+    if years:
+        year_strs = [f' on {year}-' for year in years]  # eg "Fred Hope on 2018-01-01 at 16.17.18"
+        return [f for f in os.listdir(COPIED_MESSAGE_LOG_DIR) if f.endswith(FILE_SUFFIX) and any([year_str in f for year_str in year_strs])]
+    else:
+        return [f for f in os.listdir(COPIED_MESSAGE_LOG_DIR) if f.endswith(FILE_SUFFIX)]
 
 
 def index_or_none(l, item, *args):
@@ -313,7 +320,7 @@ def other_name_from_filename(filename):
     return OTHER_NAME_PATTERN.search(filename).group(1)
 
 
-def parse_file(filename):
+def parse_file(filename, debug_mode=DEBUG_MODE):
     try:
         other_name = other_name_from_filename(filename)
         all_other_name_emails = get_all_other_name_emails(other_name)
@@ -557,14 +564,10 @@ def parse_file(filename):
             timestamp_str = strip_tags(lines[timestamp_idx])
             timestamp = datetime_from_cocoa_time(float(timestamp_str.replace('*', '')))
             message = unescape_xml_chars(strip_tags(lines[message_idx]))
-            messages.append({
-                'sender_id': sender_id,
-                'sender': sender,
-                'timestamp': timestamp,
-                'is_timestamp_inferred': '*' in timestamp_str,
-                'message': message,
-                'meta': meta,
-                })
+            message_dict = {'sender': sender, 'timestamp': timestamp, 'message': message}
+            if debug_mode:
+                message_dict.update({'is_timestamp_inferred': '*' in timestamp_str, 'sender_id': sender_id, 'meta': meta})
+            messages.append(message_dict)
         assert len(messages) == len(lines) / 3, f"{len(lines)} lines became {len(messages)} messages"
     except Exception:
         print(filename)
@@ -573,8 +576,14 @@ def parse_file(filename):
     return sorted(messages, key=lambda k: k['timestamp']), primary_other_name
 
 
-def parse_files(filenames=None):
-    filenames = filenames or get_filenames()
+def parse_files(filenames=None, years=None):
+    """
+    Parses a list of files or all the files for the specified years
+    """
+
+    if filenames and years:
+        raise ValueError("Cannot filter by both filenames and years")
+    filenames = filenames or get_filenames(years=years)
     messages = {}
     print("Parsing...")
     now = time.time()
@@ -589,7 +598,7 @@ def parse_files(filenames=None):
     return messages
 
 
-def copy_and_parse_files(years=None, parse_copied_files_only=False):
+def copy_and_parse_files(years=None, parse_copied_files_only=True):
     """
     Copies/decrypts files for the specified years, and parses them to get the messages.
     Basically a combination of copy_files() and parse_files()
