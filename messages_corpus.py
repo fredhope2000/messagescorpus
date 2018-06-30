@@ -40,18 +40,27 @@ MY_CONTACT_INFO_IDS = ['e:', f'e:{MY_EMAIL}', MY_EMAIL]
 MY_NAME = 'Fred Hope'
 MY_SHORT_NAME = 'Fred'
 
-NAME_GROUPS = {
-    'Fred Hope': {'Fred Hope', 'fredhope2000@gmail.com', '+1 (805) 450-0792', 'fredhope2000@icloud.com'},
-    'Mark': {'Mark Myslin', 'Mark', 'mmyslin@gmail.com', 'mmyslin@me.com', 'mmyslin@yahoo.com', 'mmyslin@icloud.com'},
-    'Dan': {'Dan', 'Daniel Benjamin'},
-    'Mom': {'Mom', 'Mom Hope', 'lucy2424@sbcglobal.net'},
-    'Ana': {'Ana', 'Ana Banana', 'anacuevas28@gmail.com', '+1 (805) 455-8158'},
-    'Fish': {'Peter Fishman', 'fishman@gmail.com', '+1 (510) 703-0953'},
-    'Sean Routt': {'Sean Routt', '+1 (443) 569-2338'},
-}
 
-# Verify that all the name groups are pairwise disjoint
-assert sum([len(s) for s in NAME_GROUPS.values()]) == len(frozenset().union(*NAME_GROUPS.values()))
+def get_name_groups():
+    """
+    Name groups are mappings between a person's name (or however you want them to be identified) and other names, phone numbers, or emails
+    they might be identified as in the various files.
+    name_groups.json is a separate file (not included in this repo) because it contains PII.
+    You can use your own, with format:
+        {
+            "Name": ["Alt Name", "Another Alt Name", "alt@email.com"],
+            ...
+        }
+    """
+
+    with open('name_groups.json', 'r') as ng:
+        name_groups = json.load(ng)
+    name_groups = {k: set(v) for k, v in name_groups.items()}
+    assert sum([len(s) for s in name_groups.values()]) == len(frozenset().union(*name_groups.values())), "Name groups must be pairwise disjoint"
+    return name_groups
+
+
+NAME_GROUPS = get_name_groups()
 
 
 def decrypt_file(filename):
@@ -327,12 +336,12 @@ def parse_file(filename):
             i += 1
 
         def is_contact_info_line(line):
-            return bool(PHONE_NUMBER_PATTERN.match(line) \
-                or (BARE_PHONE_NUMBER_PATTERN.match(line) and strip_tags(line) == other_name) \
-                or strip_tags(line) in MY_CONTACT_INFO_IDS \
-                or strip_tags(line) in conversation_started_by \
-                or (AUTOMATED_SENDER_PATTERN.match(other_name) and strip_tags(line) == other_name) \
-                or (other_name in VERIZON_FORMATTED_NUMBERS and strip_tags(line) in VERIZON_RAW_NUMBERS) \
+            return bool(PHONE_NUMBER_PATTERN.match(line)
+                or (BARE_PHONE_NUMBER_PATTERN.match(line) and strip_tags(line) == other_name)
+                or strip_tags(line) in MY_CONTACT_INFO_IDS
+                or strip_tags(line) in conversation_started_by
+                or (AUTOMATED_SENDER_PATTERN.match(other_name) and strip_tags(line) == other_name)
+                or (other_name in VERIZON_FORMATTED_NUMBERS and strip_tags(line) in VERIZON_RAW_NUMBERS)
                 or any((EMAIL_PATTERN.match(name) and strip_tags(line) == name.lower()) for name in all_other_name_emails))
 
         # If a message has a newline in it, this ends up on the next line of the file, without any XML prefix.
