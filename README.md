@@ -1,8 +1,8 @@
-##Read Me for Messages Corpus Scripts
+## Read Me for Messages Corpus Scripts
 
 The original version of the Messages Corpus involved running a bash script and then an R script. I have since ported everything to a single Python script. The bash and R script shouldn't be used, but they are included here for historical reasons.
 
-###Old Setup
+### Old Setup
 
 Bash script:
 
@@ -15,7 +15,7 @@ R script:
 
 - edit the lines near the end (starting at line 800) with your name, email, same path to the XML files as you entered in the Bash script, and any duplicate names of contacts (see comments in R script)
 
-###New Setup
+### New Setup
 
 - Requirements: Python 3 and packages listed in requirements.txt
 - Import the Python script and use the `copy_files`, `parse_files`, or `copy_and_parse_files` functions to parse iMessage logs into Python objects of messages.
