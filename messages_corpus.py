@@ -317,9 +317,9 @@ def other_name_from_filename(filename):
     return OTHER_NAME_PATTERN.search(filename).group(1)
 
 
-def parse_file(filename, debug_mode=DEBUG_MODE):
+def parse_file(filename, debug_mode=DEBUG_MODE, name_groups=None):
     try:
-        name_groups = get_name_groups()
+        name_groups = name_groups or get_name_groups()
         other_name = other_name_from_filename(filename)
         all_other_name_emails = get_all_other_name_emails(other_name, name_groups)
         primary_other_name = get_primary_other_name(other_name, name_groups)
@@ -574,6 +574,16 @@ def parse_file(filename, debug_mode=DEBUG_MODE):
     return sorted(messages, key=lambda k: k['timestamp']), primary_other_name
 
 
+def parse_file_with_kwargs(kwargs):
+    """
+    executor.map can only pass a single arg (and we can't use a lambda because lambdas can't be pickled),
+    so this helper function takes kwargs as a single arg and extracts it before calling parse_file.
+    https://stackoverflow.com/questions/42056738/how-to-pass-a-function-with-more-than-one-argument-to-python-concurrent-futures
+    """
+
+    return parse_file(**kwargs)
+
+
 def dedupe_messages(messages):
     """
     At least in my data, there are legitimately duplicated message files, with separate dates, where messages appear again.
@@ -604,8 +614,10 @@ def parse_files(filenames=None, years=None):
     messages = {}
     print("Parsing...")
     now = time.time()
+    name_groups = get_name_groups()
+    kwargs = [{'filename': f, 'name_groups': name_groups} for f in filenames]
     with ProcessPoolExecutor() as executor:
-        for new_messages, other_name in list(tqdm.tqdm(executor.map(parse_file, filenames, chunksize=3), total=len(filenames))):
+        for new_messages, other_name in list(tqdm.tqdm(executor.map(parse_file_with_kwargs, kwargs, chunksize=3), total=len(filenames))):
             messages[other_name] = messages.get(other_name, []) + new_messages
     print("\nParsed {files} files in {seconds:.02f} seconds".format(files=len(filenames), seconds=time.time() - now))
 
