@@ -75,9 +75,6 @@ def get_name_groups():
     return name_groups
 
 
-NAME_GROUPS = get_name_groups()
-
-
 def decrypt_file(filename):
     """
     Decrypts the given file and places it in COPIED_MESSAGE_LOG_DIR with a unique filename
@@ -293,26 +290,26 @@ def unescape_xml_chars(s):
     return s
 
 
-def get_primary_other_name(name):
+def get_primary_other_name(name, name_groups):
     """
     Checks the name groups to find the primary name associated with this name.
     """
 
-    if name in NAME_GROUPS:
+    if name in name_groups:
         return name
-    for primary_name, alt_names in NAME_GROUPS.items():
+    for primary_name, alt_names in name_groups.items():
         if name in alt_names:
             return primary_name
     return name
 
 
-def get_all_other_names(name):
-    primary_other_name = get_primary_other_name(name)
-    return NAME_GROUPS.get(primary_other_name, {primary_other_name})
+def get_all_other_names(name, name_groups):
+    primary_other_name = get_primary_other_name(name, name_groups)
+    return name_groups.get(primary_other_name, {primary_other_name})
 
 
-def get_all_other_name_emails(name):
-    all_other_names = get_all_other_names(name)
+def get_all_other_name_emails(name, name_groups):
+    all_other_names = get_all_other_names(name, name_groups)
     return set([name for name in all_other_names if EMAIL_PATTERN.match(name)])
 
 
@@ -322,9 +319,10 @@ def other_name_from_filename(filename):
 
 def parse_file(filename, debug_mode=DEBUG_MODE):
     try:
+        name_groups = get_name_groups()
         other_name = other_name_from_filename(filename)
-        all_other_name_emails = get_all_other_name_emails(other_name)
-        primary_other_name = get_primary_other_name(other_name)
+        all_other_name_emails = get_all_other_name_emails(other_name, name_groups)
+        primary_other_name = get_primary_other_name(other_name, name_groups)
 
         with open(os.path.join(COPIED_MESSAGE_LOG_DIR, filename), 'r') as f:
             lines = f.readlines()
