@@ -576,6 +576,25 @@ def parse_file(filename, debug_mode=DEBUG_MODE):
     return sorted(messages, key=lambda k: k['timestamp']), primary_other_name
 
 
+def dedupe_messages(messages):
+    """
+    At least in my data, there are legitimately duplicated message files, with separate dates, where messages appear again.
+    This is how the data is stored by Messages and nothing to do with this tool.
+
+    We can dedupe on (sender, timestamp, message) for a given person. Unfortunately, this means if the same message is sent multiple times in the same second
+    (aka "spammed"), we will legitimately lose that piece of information (it will appear only once after deduping).
+    """
+
+    unique_messages = []
+    processed_messages = set()
+    for message in messages:
+        unique_message = (message['sender'], message['timestamp'], message['message'])
+        if unique_message not in processed_messages:
+            unique_messages.append(message)
+            processed_messages.add(unique_message)
+    return unique_messages
+
+
 def parse_files(filenames=None, years=None):
     """
     Parses a list of files or all the files for the specified years
@@ -593,7 +612,7 @@ def parse_files(filenames=None, years=None):
     print("\nParsed {files} files in {seconds:.02f} seconds".format(files=len(filenames), seconds=time.time() - now))
 
     for other_name in messages:
-        messages[other_name] = sorted(messages[other_name], key=lambda k: k['timestamp'])
+        messages[other_name] = dedupe_messages(sorted(messages[other_name], key=lambda k: k['timestamp']))
 
     return messages
 

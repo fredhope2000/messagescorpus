@@ -19,5 +19,6 @@ The original version of the Messages Corpus involved running a bash script and t
 > len(messages)  # Number of distinct people you've conversed with
 > 
 > sum([len(v) for v in messages.values()])  # Total number of messages you've sent
-> 
+```
+
 See www.fredhope.com/messagescorpus or email fredhope2000@gmail.com for more information.
