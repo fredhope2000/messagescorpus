@@ -56,23 +56,7 @@ INFERRED_TIMESTAMP_PATTERN = re.compile(r'\*?<\/real>')
 TAG_PATTERN = re.compile(r'<(\w+)>')
 
 
-def get_name_groups():
-    """
-    Name groups are mappings between a person's name (or however you want them to be identified) and other names, phone numbers, or emails
-    they might be identified as in the various files.
-    name_groups.json is a separate file (not included in this repo) because it contains PII.
-    You can use your own, with format:
-        {
-            "Name": ["Alt Name", "Another Alt Name", "alt@email.com"],
-            ...
-        }
-    """
-
-    with open('name_groups.json', 'r') as ng:
-        name_groups = json.load(ng)
-    name_groups = {k: set(v) for k, v in name_groups.items()}
-    assert sum([len(s) for s in name_groups.values()]) == len(frozenset().union(*name_groups.values())), "Name groups must be pairwise disjoint"
-    return name_groups
+"""Functions for copying and decrypting the files"""
 
 
 def decrypt_file(filename):
@@ -159,12 +143,34 @@ def copy_files(years=None, return_filenames=False):
     return
 
 
+"""Functions for parsing the files"""
+
+
 def get_filenames(years=None):
     if years:
         year_strs = [f' on {year}-' for year in years]  # eg "Fred Hope on 2018-01-01 at 16.17.18"
         return [f for f in os.listdir(COPIED_MESSAGE_LOG_DIR) if f.endswith(FILE_SUFFIX) and any([year_str in f for year_str in year_strs])]
     else:
         return [f for f in os.listdir(COPIED_MESSAGE_LOG_DIR) if f.endswith(FILE_SUFFIX)]
+
+
+def get_name_groups():
+    """
+    Name groups are mappings between a person's name (or however you want them to be identified) and other names, phone numbers, or emails
+    they might be identified as in the various files.
+    name_groups.json is a separate file (not included in this repo) because it contains PII.
+    You can use your own, with format:
+        {
+            "Name": ["Alt Name", "Another Alt Name", "alt@email.com"],
+            ...
+        }
+    """
+
+    with open('name_groups.json', 'r') as ng:
+        name_groups = json.load(ng)
+    name_groups = {k: set(v) for k, v in name_groups.items()}
+    assert sum([len(s) for s in name_groups.values()]) == len(frozenset().union(*name_groups.values())), "Name groups must be pairwise disjoint"
+    return name_groups
 
 
 def index_or_none(l, item, *args):
@@ -637,3 +643,97 @@ def copy_and_parse_files(years=None, parse_copied_files_only=True):
     filenames = copy_files(years=years, return_filenames=parse_copied_files_only)
     messages = parse_files(filenames)
     return messages
+
+
+"""Functions for searching and printing the parsed data"""
+
+
+def color_with_substr_highlight(s, color, substr_range, substr_color):
+    """
+    Colorizes a string, with a substring of another color.
+    Simpler instead of using indices would be s.split(substr) and then substr.join(...) but we actually don't want to highlight all instances
+    of substr in case it was a regex group that doesn't actually match. So just highlight the actual match itself.
+
+    :param s: string to be colorized
+    :param color: string e.g. 'red', 'green' etc
+    :substr_range tuple of substring to colorize differently. e.g (1,4) colorizes 'est' of 'Testing'
+    :substr_color: string e.g. 'red', 'green' etc
+    """
+
+    idx_start, idx_end = substr_range
+    return colored(s[:idx_start], color) + colored(s[idx_start:idx_end], substr_color) + colored(s[idx_end:], color)
+
+
+def tabulate_df(df, substr_highlights=None, my_color='yellow', other_color='green'):
+    """
+    Pretty-prints a pandas DataFrame, colorizing the rows.
+    If substr_highlights is included, colorize the substrings specified by it .
+
+    :param df: pandas dataframe of a message list
+    :substr_highlights: dictionary of {index: (substr_start, substr_end)}
+        e.g. {2: (1, 4)} will highlight substring (1, 4) of the message in row index 2
+    :my_color: string e.g. 'red', 'green' etc to be used where sender is MY_DISPLAY_NAME
+    :other_color: string e.g. 'red', 'green' etc to be used where sender is not MY_DISPLAY_NAME
+    """
+
+    if substr_highlights is None:
+        substr_highlights = {}
+    df = df[['timestamp', 'sender', 'message']]
+    for column in ['timestamp', 'message', 'sender']:  # Have to do sender last because we are also checking its original value
+        if column == 'message':  # highlight the matched text a different color
+            df[column] = df.apply(lambda row: color_with_substr_highlight(row[column], my_color if row.sender == MY_DISPLAY_NAME else other_color, substr_highlights.get(row.name, (0, 0)), 'red'), axis=1)
+        else:
+            df[column] = df.apply(lambda row: colored(row[column], my_color) if row.sender == MY_DISPLAY_NAME else colored(row[column], other_color), axis=1)
+    return tabulate(df, showindex=True, headers=df.columns)
+
+
+def tabulate_messages(message_list, start_index=0):
+    """
+    Pretty-prints a list of messages by converting it to a pandas DataFrame.
+
+    :param message_list: list of message objects
+    :param start_index: optional index to start at, so the DataFrame indices show the original message indices instead of starting at 0
+    """
+
+    df = pd.DataFrame(message_list)
+    if start_index:
+        df.index = range(start_index, start_index + len(message_list))
+    print(tabulate_df(df))
+
+
+def search_corpus(message_list, query, ignore_case=True, regex=False, regex_group=None, context=0):
+    """
+    Searches a list of messages for a substring or regex patter and prints the results as a tabulated DataFrame.
+
+    :param message_list: list of message objects. E.g. if `messages` was returned by parse_files(), this can be messages['Dan']
+    :param query: string or regex pattern to search
+    :param ignore_case: boolean whether to search case-insensitive
+    :param regex: use regex search (otherwise just substring search)
+    :param regex_group: group number of regex pattern to return (otherwise return full match)
+    :param context: number of rows on either side of matched row to display as well
+    """
+
+    regex_group = [regex_group] if regex_group else []
+    regex_flags = re.IGNORECASE if ignore_case else 0
+    def _search(query, message):
+        if regex:
+            match = re.search(query, message, flags=regex_flags)
+            return match.span(*regex_group) if match else None
+        else:
+            match = message.lower().find(query.lower()) if ignore_case else message.find(query)
+            return (match, match + len(query)) if match != -1 else None
+
+    matches = []
+    for idx, m in enumerate(message_list):
+        match = _search(query, m['message'])
+        if match:
+            matches.append((idx, match))
+    if not matches:
+        return
+    df = pd.DataFrame(message_list)
+    for message_idx, substr_range in matches:
+        sub_df = df.loc[(message_idx-context):(message_idx+context), :]
+        print(tabulate_df(sub_df, substr_highlights={message_idx: substr_range}))
+
+
+
