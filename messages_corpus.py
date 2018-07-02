@@ -42,6 +42,7 @@ OTHER_RAW_NUMBERS = ['900080004007', '1900080005330']
 DEBUG_MODE = False
 
 # Shouldn't need to modify any of these, unless you have stuff in your logs I haven't accounted for
+
 FILE_SUFFIX = '.ichat'
 CURRENT_YEAR = datetime.datetime.utcnow().year
 RAW_MESSAGE_LOG_DIR = os.path.join(os.environ['HOME'], 'Library', 'Messages', 'Archive')
@@ -57,6 +58,9 @@ BARE_PHONE_NUMBER_PATTERN = re.compile(r'<string>[0-9]{10}</string>')
 EMAIL_PATTERN = re.compile(r'^[^ @]+@[^ @.]+\.[^ @]+$')
 INFERRED_TIMESTAMP_PATTERN = re.compile(r'\*?<\/real>')
 TAG_PATTERN = re.compile(r'<(\w+)>')
+
+# Suppress pandas warnings when modifying the dataframes a certain way (it seems to complain even when we use df.loc)
+pd.options.mode.chained_assignment = None
 
 
 """Functions for copying and decrypting the files"""
