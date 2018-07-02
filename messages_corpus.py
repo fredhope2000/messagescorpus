@@ -619,7 +619,8 @@ def parse_files(filenames=None, years=None):
 
     if filenames and years:
         raise ValueError("Cannot filter by both filenames and years")
-    filenames = filenames or get_filenames(years=years)
+    if filenames is None:
+        filenames = get_filenames(years=years)
     messages = {}
     print("Parsing...")
     now = time.time()
