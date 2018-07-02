@@ -2,10 +2,13 @@ import datetime
 import json
 import re
 import os
+import pandas as pd
 import subprocess
+import tabulate
 import time
 import tqdm
 from concurrent.futures import ProcessPoolExecutor
+from termcolor import colored
 
 
 """
@@ -684,7 +687,7 @@ def tabulate_df(df, substr_highlights=None, my_color='yellow', other_color='gree
             df[column] = df.apply(lambda row: color_with_substr_highlight(row[column], my_color if row.sender == MY_DISPLAY_NAME else other_color, substr_highlights.get(row.name, (0, 0)), 'red'), axis=1)
         else:
             df[column] = df.apply(lambda row: colored(row[column], my_color) if row.sender == MY_DISPLAY_NAME else colored(row[column], other_color), axis=1)
-    return tabulate(df, showindex=True, headers=df.columns)
+    return tabulate.tabulate(df, showindex=True, headers=df.columns)
 
 
 def tabulate_messages(message_list, start_index=0):
