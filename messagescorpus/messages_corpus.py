@@ -22,8 +22,10 @@ Ported to Python from R in 2018
 # Default year to start looking for messages in the copy functions, if no year is specified
 START_YEAR = 2012
 
+BASE_REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Where the copied/decrypted files should go. The default, "data" in the repo's base folder, is git-ignored
-COPIED_MESSAGE_LOG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data')
+COPIED_MESSAGE_LOG_DIR = os.path.join(BASE_REPO_DIR, 'data')
 
 # Modify these based on your iCloud/iMessage information
 MY_EMAIL = 'fredhope2000@gmail.com'
@@ -173,7 +175,7 @@ def get_name_groups():
         }
     """
 
-    with open('name_groups.json', 'r') as ng:
+    with open(os.path.join(BASE_REPO_DIR, 'name_groups.json'), 'r') as ng:
         name_groups = json.load(ng)
     name_groups = {k: set(v) for k, v in name_groups.items()}
     assert sum([len(s) for s in name_groups.values()]) == len(frozenset().union(*name_groups.values())), "Name groups must be pairwise disjoint"
