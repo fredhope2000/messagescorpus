@@ -332,12 +332,16 @@ def other_name_from_filename(filename):
     return OTHER_NAME_PATTERN.search(filename).group(1)
 
 
-def parse_file(filename, debug_mode=DEBUG_MODE, name_groups=None):
+def parse_file(filename, debug_mode=DEBUG_MODE, name_groups=None, other_name_filter=None):
     try:
         name_groups = name_groups or get_name_groups()
         other_name = other_name_from_filename(filename)
         all_other_name_emails = get_all_other_name_emails(other_name, name_groups)
         primary_other_name = get_primary_other_name(other_name, name_groups)
+
+        # Allows us to skip all but a specific contact's messages, for efficiency
+        if other_name_filter and primary_other_name != other_name_filter:
+            return [], primary_other_name
 
         with open(os.path.join(COPIED_MESSAGE_LOG_DIR, filename), 'r') as f:
             lines = f.readlines()
@@ -618,7 +622,7 @@ def dedupe_messages(messages):
     return unique_messages
 
 
-def parse_files(filenames=None, years=None):
+def parse_files(filenames=None, years=None, other_name_filter=None):
     """
     Parses a list of files or all the files for the specified years
     """
@@ -631,7 +635,7 @@ def parse_files(filenames=None, years=None):
     print("Parsing...")
     now = time.time()
     name_groups = get_name_groups()
-    kwargs = [{'filename': f, 'name_groups': name_groups} for f in filenames]
+    kwargs = [{'filename': f, 'name_groups': name_groups, 'other_name_filter': other_name_filter} for f in filenames]
     with ProcessPoolExecutor() as executor:
         for new_messages, other_name in list(tqdm.tqdm(executor.map(parse_file_with_kwargs, kwargs, chunksize=3), total=len(filenames))):
             messages[other_name] = messages.get(other_name, []) + new_messages
@@ -643,7 +647,7 @@ def parse_files(filenames=None, years=None):
     return messages
 
 
-def copy_and_parse_files(years=None, parse_copied_files_only=True):
+def copy_and_parse_files(years=None, parse_copied_files_only=True, other_name_filter=None):
     """
     Copies/decrypts files for the specified years, and parses them to get the messages.
     Basically a combination of copy_files() and parse_files()
@@ -651,7 +655,7 @@ def copy_and_parse_files(years=None, parse_copied_files_only=True):
     """
 
     filenames = copy_files(years=years, return_filenames=parse_copied_files_only)
-    messages = parse_files(filenames)
+    messages = parse_files(filenames, other_name_filter=other_name_filter)
     return messages
 
 
