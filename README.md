@@ -11,14 +11,14 @@ The original version of the Messages Corpus involved running a bash script and t
 ### Usage / Examples
 
 ```
-> import messages_corpus as mc
-> messages = mc.copy_and_parse_files(years=['2017'], ['2018'])
->
-> messages['Dan'][0:5]  # The first 5 messages between you and Dan
-> 
-> len(messages)  # Number of distinct people you've conversed with
-> 
-> sum([len(v) for v in messages.values()])  # Total number of messages you've sent
+import messages_corpus as mc
+messages = mc.copy_and_parse_files(years=['2017'], ['2018'])
+
+messages['Dan'][0:5]  # The first 5 messages between you and Dan
+
+len(messages)  # Number of distinct people you've conversed with
+
+sum([len(v) for v in messages.values()])  # Total number of messages you've sent
 ```
 
 See www.fredhope.com/messagescorpus or email fredhope2000@gmail.com for more information.
