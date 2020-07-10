@@ -49,7 +49,7 @@ FILE_SUFFIX = '.ichat'
 CURRENT_YEAR = datetime.datetime.utcnow().year
 RAW_MESSAGE_LOG_DIR = os.path.join(os.environ['HOME'], 'Library', 'Messages', 'Archive')
 DUPLICATE_FILE_PATTERN = re.compile(r'\-[0-9]+$')
-OTHER_NAME_PATTERN = re.compile('[0-9]{4}-[0-9]{2}-[0-9]{2}_\u202a?([^\u202c]+)\u202c? on [0-9]{4}-[0-9]{2}-[0-9]{2} at ')
+OTHER_NAME_PATTERN = re.compile('[0-9]{4}-[0-9]{2}-[0-9]{2}_[\u202a\u202d]*([^\u202c]+)\u202c* on [0-9]{4}-[0-9]{2}-[0-9]{2} at ')
 TAB_PADDING_PATTERN = re.compile('^\t+<')
 ATTACHMENT_UUID_PATTERN = re.compile('<string>[A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12}</string>')
 DATA_PATTERN = re.compile('\t\t\t[A-Za-z0-9/+]{52}')
@@ -715,11 +715,13 @@ def tabulate_messages(message_list, start_index=0):
     print(tabulate_df(df))
 
 
-def search_corpus(message_list, query, ignore_case=True, regex=False, regex_group=None, context=0):
+def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group=None, context=0):
     """
-    Searches a list of messages for a substring or regex patter and prints the results as a tabulated DataFrame.
+    Searches a collection of messages for a substring or regex patter and prints the results as a tabulated DataFrame.
 
-    :param message_list: list of message objects. E.g. if `messages` was returned by parse_files(), this can be messages['Dan']
+    :param message_obj: one of the following:
+        - dictionary of name:messages. E.g. the `messages` object that is returned by parse_files()
+        - list of messages. E.g. if `messages` was returned by parse_files(), this can be messages['Dan']
     :param query: string or regex pattern to search
     :param ignore_case: boolean whether to search case-insensitive
     :param regex: use regex search (otherwise just substring search)
@@ -737,17 +739,39 @@ def search_corpus(message_list, query, ignore_case=True, regex=False, regex_grou
             match = message.lower().find(query.lower()) if ignore_case else message.find(query)
             return (match, match + len(query)) if match != -1 else None
 
-    matches = []
-    for idx, m in enumerate(message_list):
-        match = _search(query, m['message'])
-        if match:
-            matches.append((idx, match))
-    if not matches:
-        return
-    df = pd.DataFrame(message_list)
-    for message_idx, substr_range in matches:
-        sub_df = df.loc[(message_idx-context):(message_idx+context), :]
-        print(tabulate_df(sub_df, substr_highlights={message_idx: substr_range}))
+    matches = {}
+    dfs = {}
+    if isinstance(message_obj, list):
+        message_list = message_obj
+        matches[None] = []
+        for idx, m in enumerate(message_list):
+            match = _search(query, m['message'])
+            if match:
+                matches[None].append((idx, match))
+        if not matches[None]:
+            return
+        dfs[None] = pd.DataFrame(message_list)
+    elif isinstance(message_obj, dict):
+        for name, message_list in message_obj.items():
+            if not message_list:
+                continue
+            matches[name] = []
+            for idx, m in enumerate(message_list):
+                match = _search(query, m['message'])
+                if match:
+                    matches[name].append((idx, match))
+            if not matches[name]:
+                continue
+            dfs[name] = pd.DataFrame(message_list)
+    else:
+        raise TypeError(f"message_obj was {type(message_obj)} which is not recognized")
+
+    for name, df in dfs.items():
+        if name is not None:
+            print(f"*** MATCHES FOR {name} ***")
+        for message_idx, substr_range in matches[name]:
+            sub_df = df.loc[(message_idx-context):(message_idx+context), :]
+            print(tabulate_df(sub_df, substr_highlights={message_idx: substr_range}))
 
 
 
