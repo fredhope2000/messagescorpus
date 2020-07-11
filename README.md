@@ -2,7 +2,7 @@
 
 `messagescorpus` reads and parses Messages logs on macOS to create a searchable dataset of your Messages history.
 
-The original version of the Messages Corpus involved running a bash script and then an R script (see "R" folder). I have since ported everything to a single Python script. The bash and R script shouldn't be used, but they are included here for historical reasons.
+The original version of the Messages Corpus involved running a bash script and then an R script (see "R" folder). I have since ported everything to a single Python script. The bash and R script shouldn't be used, but they are included here for historical preservation.
 
 ### Setup
 
