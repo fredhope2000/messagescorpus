@@ -8,20 +8,35 @@ The original version of the Messages Corpus involved running a bash script and t
 
 - Requirements: Python 3.6 and packages listed in requirements.txt
 - Edit the constants at the top of the Python file to match your information (name, email used with iMessage, etc)
-- Import the Python script and use the `copy_files`, `parse_files`, or `copy_and_parse_files` functions to parse iMessage logs into Python objects of messages.
+- Import the Python script and use the `copy_files`, `parse_files`, or `copy_and_parse_files` functions to parse Messages logs into Python objects of messages.
 - (Optional) to combine contacts together, create a `name_groups.json` in the base repo directory and populate it according to the details in `get_name_groups()`
 
 ### Usage / Examples
 
 ```
 import messages_corpus as mc
+
+# Parse all messages from 2017 and 2018
 messages = mc.copy_and_parse_files(years=['2017', '2018'])
 
-messages['Dan'][0:5]  # The first 5 messages between you and Dan
+# The first 5 messages between you and Dan
+messages['Dan'][0:5]
 
-len(messages)  # Number of distinct people you've conversed with
+# Number of distinct people you've conversed with
+len(messages)
 
-sum([len(v) for v in messages.values()])  # Total number of messages you've sent
+# Total number of messages you've sent
+sum([len(v) for v in messages.values()])
+
+# Search the logs for a particular phrase
+search_corpus(messages['Dan'], 'world series', context=5)
+
+# Optionally supply a name filter to speed up parsing.
+# Be sure to populate name_groups.json as contacts sometimes have varying names in the logs.
+messages = copy_and_parse_files(years=['2020'], other_name_filter='Dan')
+
+# `messages` will still have all of your contacts as keys.
+# But, the message lists for any contacts not matching the name you supplied will be empty.
 ```
 
 ### Caveats
