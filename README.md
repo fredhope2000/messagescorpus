@@ -1,5 +1,7 @@
 ## Messages Corpus Scripts
 
+`messagescorpus` reads and parses Messages logs on macOS to create a searchable dataset of your Messages history.
+
 The original version of the Messages Corpus involved running a bash script and then an R script (see "R" folder). I have since ported everything to a single Python script. The bash and R script shouldn't be used, but they are included here for historical reasons.
 
 ### Setup
@@ -21,5 +23,10 @@ len(messages)  # Number of distinct people you've conversed with
 
 sum([len(v) for v in messages.values()])  # Total number of messages you've sent
 ```
+
+### Caveats
+
+- Multiway chats are not supported.
+- The script can only read what is stored locally on your Mac, so if you sent messages that were only downloaded by another device, or are only stored in iCloud, this script will not find them.
 
 See www.fredhope.com/messagescorpus for info about the R script, or email fredhope2000@gmail.com with any questions.
