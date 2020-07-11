@@ -312,10 +312,13 @@ def get_primary_other_name(name, name_groups):
 
     if name in name_groups:
         return name
+    found_primary_name = None
     for primary_name, alt_names in name_groups.items():
         if name in alt_names:
-            return primary_name
-    return name
+            if found_primary_name:
+                raise KeyError(f'Other name "{name}" listed under multiple primary names ("{found_primary_name}" and "{primary_name}")')
+            found_primary_name = primary_name
+    return found_primary_name if found_primary_name is not None else name
 
 
 def get_all_other_names(name, name_groups):
