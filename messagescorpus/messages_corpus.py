@@ -3,6 +3,7 @@ import json
 import re
 import os
 import pandas as pd
+import sqlite3
 import subprocess
 import tabulate
 import time
@@ -16,6 +17,9 @@ Message Corpus Creator!
 
 Copyright 2014 by Fred Hope, in collaboration with Mark Myslin.
 Ported to Python from R in 2018
+
+NOTE: Much of this code (all of the string/log file parsing) has been rendered
+obsolete now that Messages uses a database instead of text files.
 """
 
 
@@ -31,7 +35,7 @@ COPIED_MESSAGE_LOG_DIR = os.path.join(BASE_REPO_DIR, 'data')
 MY_EMAIL = 'fredhope2000@gmail.com'
 MY_NAME = 'Fred Hope'
 
-MY_CONTACT_INFO_IDS = ['e:', f'e:{MY_EMAIL}', MY_EMAIL]
+MY_CONTACT_INFO_IDS = ['e:', f'e:{MY_EMAIL}', f'E:{MY_EMAIL}', MY_EMAIL]
 
 # How your messages will appear in the parsed logs
 MY_DISPLAY_NAME = 'Fred'
@@ -48,6 +52,7 @@ DEBUG_MODE = False
 FILE_SUFFIX = '.ichat'
 CURRENT_YEAR = datetime.datetime.utcnow().year
 RAW_MESSAGE_LOG_DIR = os.path.join(os.environ['HOME'], 'Library', 'Messages', 'Archive')
+RAW_MESSAGE_DB_PATH = os.path.join(os.environ['HOME'], 'Library', 'Messages', 'chat.db')
 DUPLICATE_FILE_PATTERN = re.compile(r'\-[0-9]+$')
 OTHER_NAME_PATTERN = re.compile('[0-9]{4}-[0-9]{2}-[0-9]{2}_[\u202a\u202d]*([^\u202c]+)\u202c* on [0-9]{4}-[0-9]{2}-[0-9]{2} at ')
 TAB_PADDING_PATTERN = re.compile('^\t+<')
@@ -60,6 +65,31 @@ BARE_PHONE_NUMBER_PATTERN = re.compile(r'<string>[0-9]{10}</string>')
 EMAIL_PATTERN = re.compile(r'^[^ @]+@[^ @.]+\.[^ @]+$')
 INFERRED_TIMESTAMP_PATTERN = re.compile(r'\*?<\/real>')
 TAG_PATTERN = re.compile(r'<(\w+)>')
+
+# https://gist.github.com/aaronhoffman/cc7ee127f00b6b5462fa7fc742c23d4f
+SQLITE_QUERY = """
+select
+ m.rowid
+,coalesce(m.cache_roomnames, h.id) ThreadId
+,m.is_from_me
+,case when m.is_from_me = 1 then m.account
+ else h.id end as sender
+,datetime((m.date / 1000000000) + 978307200, 'unixepoch', 'localtime') as TextDate /* after iOS11 date needs to be / 1000000000 */
+,case when m.text is null then '' when m.text = ' ' then '<MEDIA>' else m.text end as MessageText
+,m.service
+from
+message as m
+left join handle as h on m.handle_id = h.rowid
+left join chat as c on m.cache_roomnames = c.room_name /* note: chat.room_name is not unique, this may cause one-to-many join */
+left join chat_handle_join as ch on c.rowid = ch.chat_id
+left join handle as h2 on ch.handle_id = h2.rowid
+
+where
+-- try to eliminate duplicates due to non-unique message.cache_roomnames/chat.room_name
+(h2.service is null or m.service = h2.service)
+
+order by m.date
+"""
 
 # Suppress pandas warnings when modifying the dataframes a certain way (it seems to complain even when we use df.loc)
 pd.options.mode.chained_assignment = None
@@ -167,12 +197,14 @@ def get_name_groups():
     """
     Name groups are mappings between a person's name (or however you want them to be identified) and other names, phone numbers, or emails
     they might be identified as in the various files.
-    name_groups.json is a separate file (not included in this repo) because it contains PII.
+    Create name_groups.json if it doesn't exist, in the base repo directory (it will be gitignored).
     You can use your own, with format:
         {
             "Name": ["Alt Name", "Another Alt Name", "alt@email.com"],
             ...
         }
+    For recent versions of OS X, be sure to include the person's phone number in "+11234567890" format
+    as that's how the threads are formatted, rather than using their name.
     """
 
     with open(os.path.join(BASE_REPO_DIR, 'name_groups.json'), 'r') as ng:
@@ -665,6 +697,27 @@ def copy_and_parse_files(years=None, parse_copied_files_only=True, other_name_fi
 """Functions for searching and printing the parsed data"""
 
 
+def messages_from_sqlite(other_name_filter=None):
+    with sqlite3.connect(RAW_MESSAGE_DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(SQLITE_QUERY)
+        output = cursor.fetchall()
+        cursor.close()
+    print(f"Read {len(output)} messages from database")
+    messages = {}
+    for row in output:
+        other_name = get_primary_other_name(row[1], name_groups=get_name_groups())
+        if other_name_filter is not None and other_name != other_name_filter:
+            continue
+        messages[other_name] = messages.get(other_name, [])
+        messages[other_name].append({
+            'sender': MY_DISPLAY_NAME if row[2] else other_name,
+            'timestamp': row[4],
+            'message': row[5],
+        })
+    return messages
+
+
 def color_with_substr_highlight(s, color, substr_range, substr_color):
     """
     Colorizes a string, with a substring of another color.
@@ -718,7 +771,7 @@ def tabulate_messages(message_list, start_index=0):
     print(tabulate_df(df))
 
 
-def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group=None, context=0):
+def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group=None, context=0, max_results=20):
     """
     Searches a collection of messages for a substring or regex patter and prints the results as a tabulated DataFrame.
 
@@ -742,6 +795,7 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
             match = message.lower().find(query.lower()) if ignore_case else message.find(query)
             return (match, match + len(query)) if match != -1 else None
 
+    num_matches = 0
     matches = {}
     dfs = {}
     if isinstance(message_obj, list):
@@ -751,6 +805,9 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
             match = _search(query, m['message'])
             if match:
                 matches[None].append((idx, match))
+                num_matches += 1
+                if num_matches == max_results:
+                    break
         if not matches[None]:
             return
         dfs[None] = pd.DataFrame(message_list)
@@ -763,9 +820,14 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
                 match = _search(query, m['message'])
                 if match:
                     matches[name].append((idx, match))
+                    num_matches += 1
+                    if num_matches == max_results:
+                        break
             if not matches[name]:
                 continue
             dfs[name] = pd.DataFrame(message_list)
+            if num_matches == max_results:
+                break
     else:
         raise TypeError(f"message_obj was {type(message_obj)} which is not recognized")
 
@@ -776,5 +838,6 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
             sub_df = df.loc[(message_idx-context):(message_idx+context), :]
             print(tabulate_df(sub_df, substr_highlights={message_idx: substr_range}))
 
-
+    if num_matches == max_results:
+        print(f"*** NOTE: Maximum of {num_matches} was reached. ***")
 
