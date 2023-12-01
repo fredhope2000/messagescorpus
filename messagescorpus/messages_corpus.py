@@ -77,6 +77,7 @@ select
 ,datetime((m.date / 1000000000) + 978307200, 'unixepoch', 'localtime') as TextDate /* after iOS11 date needs to be / 1000000000 */
 ,case when m.text is null then '' when m.text = ' ' then '<MEDIA>' else m.text end as MessageText
 ,m.service
+,m.attributedBody
 from
 message as m
 left join handle as h on m.handle_id = h.rowid
@@ -697,7 +698,26 @@ def copy_and_parse_files(years=None, parse_copied_files_only=True, other_name_fi
 """Functions for searching and printing the parsed data"""
 
 
-def messages_from_sqlite(other_name_filter=None):
+# https://github.com/my-other-github-account/imessage_tools
+def parse_message_text_from_sqlite_output_row(row):
+    raw_text = row[5]
+    if raw_text != '':
+        return raw_text
+
+    attributed_body = row[7].decode('utf-8', errors='replace')
+    if 'NSNumber' in str(attributed_body):
+        attributed_body = str(attributed_body).split('NSNumber')[0]
+        if 'NSString' in attributed_body:
+            attributed_body = str(attributed_body).split('NSString')[1]
+            if 'NSDictionary' in attributed_body:
+                attributed_body = str(attributed_body).split('NSDictionary')[0]
+                attributed_body = attributed_body[6:-12]
+                return attributed_body
+
+    return attributed_body
+
+
+def messages_from_sqlite(other_name_filter=None, return_as_list=True):
     with sqlite3.connect(RAW_MESSAGE_DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute(SQLITE_QUERY)
@@ -710,11 +730,16 @@ def messages_from_sqlite(other_name_filter=None):
         if other_name_filter is not None and other_name != other_name_filter:
             continue
         messages[other_name] = messages.get(other_name, [])
+        message_text = parse_message_text_from_sqlite_output_row(row)
         messages[other_name].append({
             'sender': MY_DISPLAY_NAME if row[2] else other_name,
             'timestamp': row[4],
-            'message': row[5],
+            'message': message_text.strip(),
         })
+    if return_as_list:
+        if len(messages) > 1:
+            raise ValueError(f'Messages could not be returned as a flat list because it contains multiple names: {messages.keys()}')
+        return list(messages.values())[0]
     return messages
 
 
@@ -771,7 +796,7 @@ def tabulate_messages(message_list, start_index=0):
     print(tabulate_df(df))
 
 
-def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group=None, context=0, max_results=20):
+def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group=None, context=0, max_results=20, most_recent=True):
     """
     Searches a collection of messages for a substring or regex patter and prints the results as a tabulated DataFrame.
 
@@ -801,7 +826,8 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
     if isinstance(message_obj, list):
         message_list = message_obj
         matches[None] = []
-        for idx, m in enumerate(message_list):
+        ordered_list = list(reversed(message_list)) if most_recent else message_list
+        for idx, m in enumerate(ordered_list):
             match = _search(query, m['message'])
             if match:
                 matches[None].append((idx, match))
@@ -810,13 +836,14 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
                     break
         if not matches[None]:
             return
-        dfs[None] = pd.DataFrame(message_list)
+        dfs[None] = pd.DataFrame(ordered_list)
     elif isinstance(message_obj, dict):
         for name, message_list in message_obj.items():
             if not message_list:
                 continue
             matches[name] = []
-            for idx, m in enumerate(message_list):
+            ordered_list = list(reversed(message_list)) if most_recent else message_list
+            for idx, m in enumerate(ordered_list):
                 match = _search(query, m['message'])
                 if match:
                     matches[name].append((idx, match))
@@ -825,13 +852,17 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
                         break
             if not matches[name]:
                 continue
-            dfs[name] = pd.DataFrame(message_list)
+            dfs[name] = pd.DataFrame(ordered_list)
             if num_matches == max_results:
                 break
     else:
         raise TypeError(f"message_obj was {type(message_obj)} which is not recognized")
 
     for name, df in dfs.items():
+        if most_recent:
+            # So that each conversation snippet is still ordered naturally
+            df = df.iloc[::-1]
+            context = -context
         if name is not None:
             print(f"*** MATCHES FOR {name} ***")
         for message_idx, substr_range in matches[name]:
