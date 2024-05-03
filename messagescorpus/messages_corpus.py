@@ -700,11 +700,13 @@ def copy_and_parse_files(years=None, parse_copied_files_only=True, other_name_fi
 
 # https://github.com/my-other-github-account/imessage_tools
 def parse_message_text_from_sqlite_output_row(row):
-    raw_text = row[5]
+    raw_text, attributed_body = row[5], row[7]
     if raw_text != '':
         return raw_text
+    if attributed_body is None:
+        return ''
 
-    attributed_body = row[7].decode('utf-8', errors='replace')
+    attributed_body = attributed_body.decode('utf-8', errors='replace')
     if 'NSNumber' in str(attributed_body):
         attributed_body = str(attributed_body).split('NSNumber')[0]
         if 'NSString' in attributed_body:
