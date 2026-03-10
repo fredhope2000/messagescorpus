@@ -74,6 +74,7 @@ def parse_message_text_from_sqlite_output_row(row):
 
 
 def messages_from_sqlite(other_name_filter=None, return_as_list=True):
+    name_groups = get_name_groups()
     with sqlite3.connect(RAW_MESSAGE_DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute(SQLITE_QUERY)
@@ -82,7 +83,7 @@ def messages_from_sqlite(other_name_filter=None, return_as_list=True):
     print(f"Read {len(output)} messages from database")
     messages = {}
     for row in output:
-        other_name = get_primary_other_name(row[1], name_groups=get_name_groups())
+        other_name = get_primary_other_name(row[1], name_groups=name_groups)
         if other_name_filter is not None and other_name != other_name_filter:
             continue
         messages[other_name] = messages.get(other_name, [])
@@ -154,7 +155,7 @@ def tabulate_messages(message_list, start_index=0):
 
 def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group=None, context=0, max_results=20, most_recent=True):
     """
-    Searches a collection of messages for a substring or regex patter and prints the results as a tabulated DataFrame.
+    Searches a collection of messages for a substring or regex patter and returns the matching DataFrames and metadata.
 
     :param message_obj: one of the following:
         - dictionary of name:messages. E.g. the `messages` object that is returned by parse_files()
@@ -214,6 +215,19 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
     else:
         raise TypeError(f"message_obj was {type(message_obj)} which is not recognized")
 
+    return dfs, matches, num_matches
+
+
+def print_from_corpus(message_obj, query, ignore_case=True, regex=False, regex_group=None, context=0, max_results=20, most_recent=True):
+    """
+    Searches a collection of messages and prints the results as tabulated DataFrames.
+    """
+
+    search_results = search_corpus(message_obj, query, ignore_case=ignore_case, regex=regex, regex_group=regex_group, context=context, max_results=max_results, most_recent=most_recent)
+    if search_results is None:
+        return
+
+    dfs, matches, num_matches = search_results
     for name, df in dfs.items():
         if most_recent:
             # So that each conversation snippet is still ordered naturally
@@ -227,4 +241,3 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
 
     if num_matches == max_results:
         print(f"*** NOTE: Maximum of {num_matches} was reached. ***")
-
