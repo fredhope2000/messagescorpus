@@ -13,7 +13,7 @@ The current Python module reads directly from the local macOS Messages SQLite da
 ### SQLite Usage
 
 ```python
-from messagescorpus.messages_corpus import messages_from_sqlite, search_corpus
+from messagescorpus.corpus import messages_from_sqlite, search_corpus
 ```
 
 Read a single conversation as a flat list:
@@ -41,7 +41,7 @@ Each message has the same downstream structure as before:
 ### Usage / Examples
 
 ```
-from messagescorpus.messages_corpus import messages_from_sqlite, search_corpus
+from messagescorpus.corpus import messages_from_sqlite, search_corpus
 
 # Read all conversations from the Messages SQLite database
 messages = messages_from_sqlite(return_as_list=False)

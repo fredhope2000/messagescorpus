@@ -6,7 +6,7 @@ import subprocess
 import tabulate
 from termcolor import colored
 
-from shared_utils import MY_DISPLAY_NAME, get_name_groups, get_primary_other_name
+from .shared_utils import MY_DISPLAY_NAME, get_name_groups, get_primary_other_name
 
 
 """

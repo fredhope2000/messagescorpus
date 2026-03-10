@@ -6,7 +6,7 @@ import tqdm
 from concurrent.futures import ProcessPoolExecutor
 
 
-from shared_utils import (
+from .shared_utils import (
     BASE_REPO_DIR, MY_DISPLAY_NAME, get_name_groups, get_primary_other_name
 )
 
