@@ -13,7 +13,7 @@ The current Python module reads directly from the local macOS Messages SQLite da
 ### SQLite Usage
 
 ```python
-from messagescorpus.corpus import messages_from_sqlite, search_corpus
+from messagescorpus.corpus import message_dict_from_sqlite, messages_from_sqlite, search_corpus
 ```
 
 Read a single conversation as a flat list:
@@ -25,7 +25,7 @@ messages = messages_from_sqlite(other_name_filter='Dan')
 Read all conversations as a dictionary keyed by contact name:
 
 ```python
-messages = messages_from_sqlite(return_as_list=False)
+messages = message_dict_from_sqlite()
 ```
 
 Each message has the same downstream structure as before:
@@ -41,10 +41,10 @@ Each message has the same downstream structure as before:
 ### Usage / Examples
 
 ```
-from messagescorpus.corpus import messages_from_sqlite, search_corpus
+from messagescorpus.corpus import message_dict_from_sqlite, messages_from_sqlite, search_corpus
 
 # Read all conversations from the Messages SQLite database
-messages = messages_from_sqlite(return_as_list=False)
+messages = message_dict_from_sqlite()
 
 # The first 5 messages between you and Dan
 messages['Dan'][0:5]
@@ -66,7 +66,7 @@ messages = messages_from_sqlite(other_name_filter='Dan')
 
 - Multiway chats are not supported.
 - The script can only read what is stored locally on your Mac, so if you sent messages that were only downloaded by another device, or are only stored in iCloud, this script will not find them.
-- `messages_from_sqlite(return_as_list=True)` only works when the query resolves to a single contact, which usually means supplying `other_name_filter`.
+- `messages_from_sqlite()` only works when the query resolves to a single contact, which usually means supplying `other_name_filter`.
 
 ### Legacy
 

@@ -2,7 +2,6 @@ import re
 import os
 import pandas as pd
 import sqlite3
-import subprocess
 import tabulate
 from termcolor import colored
 
@@ -48,6 +47,24 @@ where
 order by m.date
 """
 
+SQLITE_NAME_QUERY = """
+select distinct
+ coalesce(m.cache_roomnames, h.id) ThreadId
+from
+message as m
+left join handle as h on m.handle_id = h.rowid
+left join chat as c on m.cache_roomnames = c.room_name /* note: chat.room_name is not unique, this may cause one-to-many join */
+left join chat_handle_join as ch on c.rowid = ch.chat_id
+left join handle as h2 on ch.handle_id = h2.rowid
+
+where
+-- try to eliminate duplicates due to non-unique message.cache_roomnames/chat.room_name
+(h2.service is null or m.service = h2.service)
+and coalesce(m.cache_roomnames, h.id) is not null
+
+order by ThreadId
+"""
+
 # Suppress pandas warnings when modifying the dataframes a certain way (it seems to complain even when we use df.loc)
 pd.options.mode.chained_assignment = None
 
@@ -73,7 +90,7 @@ def parse_message_text_from_sqlite_output_row(row):
     return attributed_body
 
 
-def messages_from_sqlite(other_name_filter=None, return_as_list=True):
+def message_dict_from_sqlite(other_name_filter=None):
     name_groups = get_name_groups()
     with sqlite3.connect(RAW_MESSAGE_DB_PATH) as conn:
         cursor = conn.cursor()
@@ -93,11 +110,24 @@ def messages_from_sqlite(other_name_filter=None, return_as_list=True):
             'timestamp': row[4],
             'message': message_text.strip(),
         })
-    if return_as_list:
-        if len(messages) > 1:
-            raise ValueError(f'Messages could not be returned as a flat list because it contains multiple names: {messages.keys()}')
-        return list(messages.values())[0]
     return messages
+
+
+def messages_from_sqlite(other_name_filter=None):
+    messages = message_dict_from_sqlite(other_name_filter=other_name_filter)
+    if len(messages) > 1:
+        raise ValueError(f'Messages could not be returned as a flat list because it contains multiple names: {messages.keys()}')
+    return list(messages.values())[0]
+
+
+def message_names_from_sqlite():
+    name_groups = get_name_groups()
+    with sqlite3.connect(RAW_MESSAGE_DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(SQLITE_NAME_QUERY)
+        output = cursor.fetchall()
+        cursor.close()
+    return sorted({get_primary_other_name(row[0], name_groups=name_groups) for row in output})
 
 
 def color_with_substr_highlight(s, color, substr_range, substr_color):
@@ -215,7 +245,11 @@ def search_corpus(message_obj, query, ignore_case=True, regex=False, regex_group
     else:
         raise TypeError(f"message_obj was {type(message_obj)} which is not recognized")
 
-    return dfs, matches, num_matches
+    return {
+        'dfs': dfs,
+        'matches': matches,
+        'num_matches': num_matches,
+    }
 
 
 def print_from_corpus(message_obj, query, ignore_case=True, regex=False, regex_group=None, context=0, max_results=20, most_recent=True):
@@ -227,16 +261,19 @@ def print_from_corpus(message_obj, query, ignore_case=True, regex=False, regex_g
     if search_results is None:
         return
 
-    dfs, matches, num_matches = search_results
+    dfs = search_results['dfs']
+    matches = search_results['matches']
+    num_matches = search_results['num_matches']
     for name, df in dfs.items():
+        context_offset = context
         if most_recent:
             # So that each conversation snippet is still ordered naturally
             df = df.iloc[::-1]
-            context = -context
+            context_offset = -context
         if name is not None:
             print(f"*** MATCHES FOR {name} ***")
         for message_idx, substr_range in matches[name]:
-            sub_df = df.loc[(message_idx-context):(message_idx+context), :]
+            sub_df = df.loc[(message_idx-context_offset):(message_idx+context_offset), :]
             print(tabulate_df(sub_df, substr_highlights={message_idx: substr_range}))
 
     if num_matches == max_results:
