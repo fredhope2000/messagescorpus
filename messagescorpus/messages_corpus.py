@@ -1,14 +1,9 @@
-import datetime
-import json
 import re
 import os
 import pandas as pd
 import sqlite3
 import subprocess
 import tabulate
-import time
-import tqdm
-from concurrent.futures import ProcessPoolExecutor
 from termcolor import colored
 
 from shared_utils import MY_DISPLAY_NAME, get_name_groups, get_primary_other_name
