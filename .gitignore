@@ -5,3 +5,7 @@ data/**
 **/__pycache__/**
 **.pyc
 virtualenv/**
+node_modules/**
+package.json
+package-lock.json
+
