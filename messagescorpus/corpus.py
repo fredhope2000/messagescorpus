@@ -20,6 +20,8 @@ The obsolete code has been moved to legacy_utils.
 """
 
 RAW_MESSAGE_DB_PATH = os.path.join(os.environ['HOME'], 'Library', 'Messages', 'chat.db')
+OBJECT_REPLACEMENT_CHAR = "\ufffc"
+MEDIA_PLACEHOLDER = "<MEDIA>"
 
 # https://gist.github.com/aaronhoffman/cc7ee127f00b6b5462fa7fc742c23d4f
 SQLITE_QUERY = """
@@ -68,6 +70,23 @@ order by ThreadId
 # Suppress pandas warnings when modifying the dataframes a certain way (it seems to complain even when we use df.loc)
 pd.options.mode.chained_assignment = None
 
+PHONE_NAME_RE = re.compile(r"^[\d\+\-\(\)\.\s]+$")
+FAKE_CHAT_RE = re.compile("[a-z0-9]{32}")
+
+
+def is_phone_like(name):
+    return bool(name) and "@" not in name and PHONE_NAME_RE.fullmatch(name) is not None
+
+
+def is_fake_chat(name):
+    return bool(name) and FAKE_CHAT_RE.fullmatch(name) is not None
+
+
+def normalize_message_text(message_text):
+    if OBJECT_REPLACEMENT_CHAR in message_text:
+        return message_text.replace(OBJECT_REPLACEMENT_CHAR, MEDIA_PLACEHOLDER)
+    return message_text
+
 
 # https://github.com/my-other-github-account/imessage_tools
 def parse_message_text_from_sqlite_output_row(row):
@@ -104,7 +123,7 @@ def message_dict_from_sqlite(other_name_filter=None):
         if other_name_filter is not None and other_name != other_name_filter:
             continue
         messages[other_name] = messages.get(other_name, [])
-        message_text = parse_message_text_from_sqlite_output_row(row)
+        message_text = normalize_message_text(parse_message_text_from_sqlite_output_row(row))
         messages[other_name].append({
             'sender': MY_DISPLAY_NAME if row[2] else other_name,
             'timestamp': row[4],
@@ -127,6 +146,7 @@ def message_names_from_sqlite():
         cursor.execute(SQLITE_NAME_QUERY)
         output = cursor.fetchall()
         cursor.close()
+    output = [row for row in output if not is_phone_like(row[0]) and not is_fake_chat(row[0])]
     return sorted({get_primary_other_name(row[0], name_groups=name_groups) for row in output})
 
 
