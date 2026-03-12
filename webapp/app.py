@@ -9,6 +9,8 @@ app = Flask(__name__)
 MESSAGE_CACHE = {}
 MESSAGE_NAMES_CACHE = None
 DEFAULT_THREAD_MESSAGE_LIMIT = 20
+THREAD_MESSAGE_LIMIT_INCREMENT = 10
+SEARCH_CONTEXT_INCREMENT = 5
 
 
 def parse_int_arg(name, default, minimum=None):
@@ -20,6 +22,12 @@ def parse_int_arg(name, default, minimum=None):
     if minimum is not None:
         return max(minimum, parsed)
     return parsed
+
+
+def parse_checkbox_arg(name, default=False):
+    if name not in request.args:
+        return default
+    return request.args.get(name) == "on"
 
 
 def get_cached_messages(name):
@@ -71,19 +79,32 @@ def build_thread_rows(messages, limit=DEFAULT_THREAD_MESSAGE_LIMIT):
     ]
 
 
-def build_result_blocks(search_results, context, most_recent):
+def build_result_blocks(search_results, context, most_recent, expanded_match_index=None, extra_before=0, extra_after=0):
     if search_results is None:
         return []
 
     df = search_results["dfs"][None]
     matches = search_results["matches"][None]
-    context_offset = -context if most_recent else context
+    total_rows = len(df)
     if most_recent:
         df = df.iloc[::-1]
 
     result_blocks = []
     for message_idx, match_span in matches:
-        sub_df = df.loc[(message_idx - context_offset):(message_idx + context_offset), :]
+        block_extra_before = extra_before if expanded_match_index == message_idx else 0
+        block_extra_after = extra_after if expanded_match_index == message_idx else 0
+        if most_recent:
+            start_idx = message_idx + context + block_extra_before
+            end_idx = message_idx - context - block_extra_after
+            sub_df = df.loc[start_idx:end_idx, :]
+            can_expand_before = start_idx < (total_rows - 1)
+            can_expand_after = end_idx > 0
+        else:
+            start_idx = message_idx - (context + block_extra_before)
+            end_idx = message_idx + (context + block_extra_after)
+            sub_df = df.loc[start_idx:end_idx, :]
+            can_expand_before = start_idx > 0
+            can_expand_after = end_idx < (total_rows - 1)
         rows = []
         for row_idx, row in sub_df.iterrows():
             rows.append({
@@ -96,6 +117,11 @@ def build_result_blocks(search_results, context, most_recent):
         result_blocks.append({
             "match_index": message_idx,
             "rows": rows,
+            "is_expanded": expanded_match_index == message_idx,
+            "can_expand_before": can_expand_before,
+            "can_expand_after": can_expand_after,
+            "next_extra_before": block_extra_before + SEARCH_CONTEXT_INCREMENT,
+            "next_extra_after": block_extra_after + SEARCH_CONTEXT_INCREMENT,
         })
     return result_blocks
 
@@ -103,15 +129,20 @@ def build_result_blocks(search_results, context, most_recent):
 @app.route("/")
 def index():
     suggested_names = get_cached_message_names()
+    search_form_submitted = request.args.get("search_form") == "1"
     form_data = {
         "name": request.args.get("name", ""),
         "query": request.args.get("query", ""),
+        "thread_limit": parse_int_arg("thread_limit", DEFAULT_THREAD_MESSAGE_LIMIT, minimum=1),
+        "expanded_match": request.args.get("expanded_match", ""),
+        "extra_before": parse_int_arg("extra_before", 0, minimum=0),
+        "extra_after": parse_int_arg("extra_after", 0, minimum=0),
         "context": parse_int_arg("context", 3, minimum=0),
         "max_results": parse_int_arg("max_results", 20, minimum=1),
         "regex_group": request.args.get("regex_group", ""),
-        "ignore_case": request.args.get("ignore_case", "on") == "on",
-        "regex": request.args.get("regex", "") == "on",
-        "most_recent": request.args.get("most_recent", "on") == "on",
+        "ignore_case": parse_checkbox_arg("ignore_case", default=not search_form_submitted),
+        "regex": parse_checkbox_arg("regex", default=False),
+        "most_recent": parse_checkbox_arg("most_recent", default=not search_form_submitted),
     }
     has_submission = bool(form_data["name"] or form_data["query"])
     refresh_requested = request.args.get("refresh_cache", "") == "1"
@@ -121,6 +152,7 @@ def index():
     result_blocks = []
     result_count = 0
     thread_rows = []
+    total_thread_messages = 0
     selected_name = form_data["name"]
 
     if refresh_requested and selected_name:
@@ -143,8 +175,12 @@ def index():
             else:
                 messages, was_cached = get_cached_messages(selected_name)
                 cache_status = "cache hit" if was_cached else "loaded from SQLite"
+            total_thread_messages = len(messages)
             if form_data["query"]:
                 regex_group = None
+                expanded_match_index = None
+                if form_data["expanded_match"] != "":
+                    expanded_match_index = int(form_data["expanded_match"])
                 if form_data["regex_group"] != "":
                     regex_group = int(form_data["regex_group"])
                 search_results = search_corpus(
@@ -157,10 +193,17 @@ def index():
                     max_results=form_data["max_results"],
                     most_recent=form_data["most_recent"],
                 )
-                result_blocks = build_result_blocks(search_results, context=form_data["context"], most_recent=form_data["most_recent"])
+                result_blocks = build_result_blocks(
+                    search_results,
+                    context=form_data["context"],
+                    most_recent=form_data["most_recent"],
+                    expanded_match_index=expanded_match_index,
+                    extra_before=form_data["extra_before"],
+                    extra_after=form_data["extra_after"],
+                )
                 result_count = 0 if search_results is None else search_results["num_matches"]
             else:
-                thread_rows = build_thread_rows(messages)
+                thread_rows = build_thread_rows(messages, limit=form_data["thread_limit"])
         except ValueError as exc:
             error_message = str(exc)
         except IndexError:
@@ -176,6 +219,9 @@ def index():
         result_blocks=result_blocks,
         result_count=result_count,
         thread_rows=thread_rows,
+        total_thread_messages=total_thread_messages,
+        thread_limit_increment=THREAD_MESSAGE_LIMIT_INCREMENT,
+        search_context_increment=SEARCH_CONTEXT_INCREMENT,
         error_message=error_message,
         info_message=info_message,
         cache_status=cache_status,

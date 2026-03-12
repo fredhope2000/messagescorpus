@@ -151,6 +151,18 @@
             cursor: pointer;
         }
 
+        .button-link {
+            display: inline-block;
+            width: fit-content;
+            padding: 11px 18px;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #fff;
+            text-decoration: none;
+            font: inherit;
+            font-weight: 700;
+        }
+
         .results {
             margin-top: 24px;
         }
@@ -181,6 +193,8 @@
         .secondary-button {
             background: #d7c5b5;
             color: var(--ink);
+            padding: 7px 12px;
+            font-size: 0.9rem;
         }
 
         .result-meta {
@@ -197,6 +211,10 @@
             overflow: hidden;
         }
 
+        .anchor-target {
+            scroll-margin-top: 18px;
+        }
+
         .message-row {
             display: grid;
             grid-template-columns: 160px 110px 1fr;
@@ -207,6 +225,10 @@
         }
 
         .message-row:first-child {
+            border-top: 0;
+        }
+
+        .result-block .anchor-target + .message-row {
             border-top: 0;
         }
 
@@ -286,6 +308,11 @@
                 <section class="panel">
                     <form action="/" method="get">
                         <input type="hidden" name="name" value="{{ selected_name }}">
+                        <input type="hidden" name="search_form" value="1">
+                        <input type="hidden" name="thread_limit" value="{{ form_data.thread_limit }}">
+                        <input type="hidden" name="expanded_match" value="">
+                        <input type="hidden" name="extra_before" value="0">
+                        <input type="hidden" name="extra_after" value="0">
                         <div class="grid">
                             <div>
                                 <label for="query">Query</label>
@@ -342,7 +369,17 @@
                             {% if cache_status %}Source: {{ cache_status }}.{% endif %}
                         </p>
                         {% for block in result_blocks %}
-                            <article class="result-block">
+                            <article class="result-block" id="match-{{ block.match_index }}">
+                                {% if block.can_expand_before %}
+                                    <div class="actions anchor-target" id="match-{{ block.match_index }}-top" style="padding: 14px 14px 0;">
+                                        <a
+                                            class="button-link secondary-button"
+                                            href="/?name={{ selected_name }}&search_form=1&query={{ form_data.query|urlencode }}&thread_limit={{ form_data.thread_limit }}&context={{ form_data.context }}&max_results={{ form_data.max_results }}&regex_group={{ form_data.regex_group|urlencode }}&expanded_match={{ block.match_index }}&extra_before={{ block.next_extra_before }}&extra_after={{ form_data.extra_after if block.is_expanded else 0 }}{% if form_data.ignore_case %}&ignore_case=on{% endif %}{% if form_data.regex %}&regex=on{% endif %}{% if form_data.most_recent %}&most_recent=on{% endif %}#match-{{ block.match_index }}-top"
+                                        >
+                                            Load {{ search_context_increment }} earlier messages
+                                        </a>
+                                    </div>
+                                {% endif %}
                                 {% for row in block.rows %}
                                     <div class="message-row{% if row.is_match %} match{% endif %}">
                                         <div class="timestamp">{{ row.timestamp }}</div>
@@ -356,6 +393,16 @@
                                         </div>
                                     </div>
                                 {% endfor %}
+                                {% if block.can_expand_after %}
+                                    <div class="actions anchor-target" id="match-{{ block.match_index }}-bottom" style="padding: 0 14px 14px;">
+                                        <a
+                                            class="button-link secondary-button"
+                                            href="/?name={{ selected_name }}&search_form=1&query={{ form_data.query|urlencode }}&thread_limit={{ form_data.thread_limit }}&context={{ form_data.context }}&max_results={{ form_data.max_results }}&regex_group={{ form_data.regex_group|urlencode }}&expanded_match={{ block.match_index }}&extra_before={{ form_data.extra_before if block.is_expanded else 0 }}&extra_after={{ block.next_extra_after }}{% if form_data.ignore_case %}&ignore_case=on{% endif %}{% if form_data.regex %}&regex=on{% endif %}{% if form_data.most_recent %}&most_recent=on{% endif %}#match-{{ block.match_index }}-top"
+                                        >
+                                            Load {{ search_context_increment }} later messages
+                                        </a>
+                                    </div>
+                                {% endif %}
                             </article>
                         {% endfor %}
                     {% elif form_data.query %}
@@ -364,6 +411,13 @@
                             {% if cache_status %}Source: {{ cache_status }}.{% endif %}
                         </div>
                     {% elif thread_rows %}
+                        {% if total_thread_messages > form_data.thread_limit %}
+                            <form action="/" method="get" class="actions">
+                                <input type="hidden" name="name" value="{{ selected_name }}">
+                                <input type="hidden" name="thread_limit" value="{{ form_data.thread_limit + thread_limit_increment }}">
+                                <button type="submit" class="secondary-button">Load {{ thread_limit_increment }} older messages</button>
+                            </form>
+                        {% endif %}
                         <article class="result-block">
                             {% for row in thread_rows %}
                                 <div class="message-row">
