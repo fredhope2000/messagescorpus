@@ -139,14 +139,17 @@ def messages_from_sqlite(other_name_filter=None):
     return list(messages.values())[0]
 
 
-def message_names_from_sqlite():
+def message_names_from_sqlite(include_phone_numbers=False):
     name_groups = get_name_groups()
     with sqlite3.connect(RAW_MESSAGE_DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute(SQLITE_NAME_QUERY)
         output = cursor.fetchall()
         cursor.close()
-    output = [row for row in output if not is_phone_like(row[0]) and not is_fake_chat(row[0])]
+    if include_phone_numbers:
+        output = [row for row in output if not is_fake_chat(row[0])]
+    else:
+        output = [row for row in output if not is_phone_like(row[0]) and not is_fake_chat(row[0])]
     return sorted({get_primary_other_name(row[0], name_groups=name_groups) for row in output})
 
 

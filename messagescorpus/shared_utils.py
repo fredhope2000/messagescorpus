@@ -1,10 +1,13 @@
 import json
 import os
+import re
 
 BASE_REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # How your messages will appear in the parsed logs
 MY_DISPLAY_NAME = 'Fred'
+
+PROPER_PHONE_NAME_RE = re.compile(r'\+1 \([0-9]{3}\) [0-9]{3}-[0-9]{4}')
 
 
 def get_primary_other_name(name, name_groups):
@@ -39,6 +42,14 @@ def get_name_groups():
 
     with open(os.path.join(BASE_REPO_DIR, 'name_groups.json'), 'r') as ng:
         name_groups = json.load(ng)
-    name_groups = {k: set(v) for k, v in name_groups.items()}
-    assert sum([len(s) for s in name_groups.values()]) == len(frozenset().union(*name_groups.values())), "Name groups must be pairwise disjoint"
-    return name_groups
+    name_groups_cleaned = {}
+    for k, v in name_groups.items():
+        names = set()
+        for name in v:
+            names.add(name)
+            # Convert +1 (234) 567-8901 => +12345678901
+            if PROPER_PHONE_NAME_RE.fullmatch(name):
+                names.add(name.replace(' ', '').replace('(', '').replace(')', '').replace('-', ''))
+        name_groups_cleaned[k] = names
+    assert sum([len(s) for s in name_groups_cleaned.values()]) == len(frozenset().union(*name_groups_cleaned.values())), "Name groups must be pairwise disjoint"
+    return name_groups_cleaned
