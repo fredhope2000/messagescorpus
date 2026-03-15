@@ -2,7 +2,7 @@
 
 `messagescorpus` reads and parses Messages logs on macOS to create a searchable dataset of your Messages history.
 
-The current Python module reads directly from the local macOS Messages SQLite database (`~/Library/Messages/chat.db`) and returns message objects that can be searched or inspected in Python.
+The current Python module reads directly from the local macOS Messages SQLite database (`~/Library/Messages/chat.db`) and returns thread-based message objects that can be searched or inspected in Python. A local Flask web app is also included for browsing and searching conversations in the browser.
 
 ### Setup
 
@@ -16,13 +16,13 @@ The current Python module reads directly from the local macOS Messages SQLite da
 from messagescorpus.corpus import message_dict_from_sqlite, messages_from_sqlite, search_corpus
 ```
 
-Read a single conversation as a flat list:
+Read a single conversation thread as a flat list:
 
 ```python
 messages = messages_from_sqlite(other_name_filter='Dan')
 ```
 
-Read all conversations as a dictionary keyed by contact name:
+Read all conversation threads as a dictionary keyed by thread name:
 
 ```python
 messages = message_dict_from_sqlite()
@@ -37,6 +37,16 @@ Each message has the same downstream structure as before:
     'message': 'See you soon',
 }
 ```
+
+Thread names are now conversation-level keys rather than just person-level keys:
+
+- 1:1 chats still use the canonicalized other-person name
+- group chats are named in Python from canonicalized participant names
+- multiple raw thread ids that canonicalize to the same thread name are merged together
+
+Per-message senders are derived from the SQL query's sender column, so group chats preserve who actually sent each message.
+
+Media (photo or video attachments) appears as `<MEDIA>`.
 
 ### Usage / Examples
 
@@ -62,11 +72,38 @@ search_corpus(messages['Dan'], 'world series', context=5)
 messages = messages_from_sqlite(other_name_filter='Dan')
 ```
 
+### Web App
+
+Run the local browser app:
+
+```bash
+pip install -r requirements.txt
+python3 webapp/app.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:5000/
+```
+
+Current web app features include:
+
+- sidebar conversation browser with client-side name filtering
+- read-only thread browsing
+- scoped search within the selected conversation
+- regex, context, and max-results controls
+- in-process caching of thread data and thread names
+- refresh controls to reload data from SQLite
+- incremental "load older" and "load more context" browsing controls
+
 ### Caveats
 
-- Multiway chats are not supported.
 - The script can only read what is stored locally on your Mac, so if you sent messages that were only downloaded by another device, or are only stored in iCloud, this script will not find them.
-- `messages_from_sqlite()` only works when the query resolves to a single contact, which usually means supplying `other_name_filter`.
+- `messages_from_sqlite()` only works when the query resolves to a single thread, which usually means supplying `other_name_filter`.
+- Group-chat naming is currently inferred from chat membership rows in the database. It is much better than the old behavior, but there may still be edge cases in how Apple stores participants or thread ids.
+- The `attributedBody` fallback is still heuristic when plain text is missing, so some unusual message types may not decode perfectly.
+- The web app conversation list excludes chats without any known contacts (e.g., arbitrary phone numbers), for brevity.
 
 ### Legacy
 
