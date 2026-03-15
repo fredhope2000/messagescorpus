@@ -38,13 +38,10 @@ select
 from
 message as m
 left join handle as h on m.handle_id = h.rowid
-left join chat as c on m.cache_roomnames = c.room_name /* note: chat.room_name is not unique, this may cause one-to-many join */
-left join chat_handle_join as ch on c.rowid = ch.chat_id
-left join handle as h2 on ch.handle_id = h2.rowid
 
 where
--- try to eliminate duplicates due to non-unique message.cache_roomnames/chat.room_name
-(h2.service is null or m.service = h2.service)
+-- tiny number of null-sender rows
+case when m.is_from_me = 1 then m.account else h.id end is not null
 
 order by m.date
 """
@@ -52,6 +49,7 @@ order by m.date
 SQLITE_NAME_QUERY = """
 select distinct
  coalesce(m.cache_roomnames, h.id) ThreadId
+,h2.id as participant
 from
 message as m
 left join handle as h on m.handle_id = h.rowid
@@ -60,9 +58,7 @@ left join chat_handle_join as ch on c.rowid = ch.chat_id
 left join handle as h2 on ch.handle_id = h2.rowid
 
 where
--- try to eliminate duplicates due to non-unique message.cache_roomnames/chat.room_name
-(h2.service is null or m.service = h2.service)
-and coalesce(m.cache_roomnames, h.id) is not null
+coalesce(m.cache_roomnames, h.id) is not null
 
 order by ThreadId
 """
@@ -72,6 +68,7 @@ pd.options.mode.chained_assignment = None
 
 PHONE_NAME_RE = re.compile(r"^[\d\+\-\(\)\.\s]+$")
 FAKE_CHAT_RE = re.compile("[a-z0-9]{32}")
+GROUP_THREAD_RE = re.compile(r"chat[0-9]{8,}")
 
 
 def is_phone_like(name):
@@ -82,9 +79,22 @@ def is_fake_chat(name):
     return bool(name) and FAKE_CHAT_RE.fullmatch(name) is not None
 
 
+def is_group_thread(thread_id):
+    return bool(thread_id) and GROUP_THREAD_RE.fullmatch(thread_id) is not None
+
+
 def normalize_message_text(message_text):
     if OBJECT_REPLACEMENT_CHAR in message_text:
         return message_text.replace(OBJECT_REPLACEMENT_CHAR, MEDIA_PLACEHOLDER)
+    return message_text
+
+
+def strip_attributed_body_artifacts(message_text):
+    """Trim binary-archive residue that can survive around extracted attributedBody text."""
+    while message_text and (message_text[0] == '\x00' or message_text[0] == '\ufffd' or ord(message_text[0]) < 32):
+        message_text = message_text[1:]
+    while message_text and (message_text[-1] == '\x00' or message_text[-1] == '\ufffd' or ord(message_text[-1]) < 32):
+        message_text = message_text[:-1]
     return message_text
 
 
@@ -104,9 +114,45 @@ def parse_message_text_from_sqlite_output_row(row):
             if 'NSDictionary' in attributed_body:
                 attributed_body = str(attributed_body).split('NSDictionary')[0]
                 attributed_body = attributed_body[6:-12]
-                return attributed_body
+                return strip_attributed_body_artifacts(attributed_body)
 
-    return attributed_body
+    return strip_attributed_body_artifacts(attributed_body)
+
+
+def get_sender_name(is_from_me, sender, name_groups):
+    if is_from_me:
+        return MY_DISPLAY_NAME
+    return get_primary_other_name(sender, name_groups=name_groups)
+
+
+def format_group_thread_name(participant_names):
+    """Create a stable, human-readable group thread label from canonical participant names."""
+    if not participant_names:
+        return None
+    participant_names = sorted(participant_names)
+    if len(participant_names) == 1:
+        return participant_names[0]
+    if len(participant_names) == 2:
+        return ' & '.join(participant_names)
+    return ', '.join(participant_names[:-1]) + f' & {participant_names[-1]}'
+
+
+def build_thread_name_map(thread_rows, name_groups):
+    """Map raw thread ids to display names while keeping 1:1 and group-thread naming rules separate."""
+    participants_by_thread = {}
+    for raw_thread_id, participant in thread_rows:
+        participants_by_thread.setdefault(raw_thread_id, set())
+        if participant:
+            participants_by_thread[raw_thread_id].add(get_primary_other_name(participant, name_groups=name_groups))
+
+    base_thread_names = {}
+    for raw_thread_id, participant_names in participants_by_thread.items():
+        if is_group_thread(raw_thread_id):
+            base_thread_name = format_group_thread_name(participant_names) or raw_thread_id
+        else:
+            base_thread_name = get_primary_other_name(raw_thread_id, name_groups=name_groups)
+        base_thread_names[raw_thread_id] = base_thread_name
+    return base_thread_names
 
 
 def message_dict_from_sqlite(other_name_filter=None):
@@ -115,17 +161,21 @@ def message_dict_from_sqlite(other_name_filter=None):
         cursor = conn.cursor()
         cursor.execute(SQLITE_QUERY)
         output = cursor.fetchall()
+        cursor.execute(SQLITE_NAME_QUERY)
+        thread_rows = cursor.fetchall()
         cursor.close()
     print(f"Read {len(output)} messages from database")
+    thread_name_map = build_thread_name_map(thread_rows, name_groups=name_groups)
     messages = {}
     for row in output:
-        other_name = get_primary_other_name(row[1], name_groups=name_groups)
+        other_name = thread_name_map[row[1]]
         if other_name_filter is not None and other_name != other_name_filter:
             continue
         messages[other_name] = messages.get(other_name, [])
+        # Thread naming is based on the conversation as a whole, but sender labeling should use the per-message sender column.
         message_text = normalize_message_text(parse_message_text_from_sqlite_output_row(row))
         messages[other_name].append({
-            'sender': MY_DISPLAY_NAME if row[2] else other_name,
+            'sender': get_sender_name(row[2], row[3], name_groups=name_groups),
             'timestamp': row[4],
             'message': message_text.strip(),
         })
@@ -146,11 +196,12 @@ def message_names_from_sqlite(include_phone_numbers=False):
         cursor.execute(SQLITE_NAME_QUERY)
         output = cursor.fetchall()
         cursor.close()
-    if include_phone_numbers:
-        output = [row for row in output if not is_fake_chat(row[0])]
-    else:
-        output = [row for row in output if not is_phone_like(row[0]) and not is_fake_chat(row[0])]
-    return sorted({get_primary_other_name(row[0], name_groups=name_groups) for row in output})
+    output = [row for row in output if not is_fake_chat(row[0])]
+    thread_name_map = build_thread_name_map(output, name_groups=name_groups)
+    thread_names = set(thread_name_map.values())
+    if not include_phone_numbers:
+        thread_names = {thread_name for thread_name in thread_names if not is_phone_like(thread_name)}
+    return sorted(thread_names)
 
 
 def color_with_substr_highlight(s, color, substr_range, substr_color):

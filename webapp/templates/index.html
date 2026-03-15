@@ -290,7 +290,7 @@
 
             <div class="conversation-list" id="conversation-list">
                 {% for name in suggested_names %}
-                    <a class="conversation-link{% if name == selected_name %} active{% endif %}" href="/?name={{ name }}" data-name="{{ name|lower }}">
+                    <a class="conversation-link{% if name == selected_name %} active{% endif %}" href="/?name={{ name|urlencode }}" data-name="{{ name|lower }}">
                         {{ name }}
                     </a>
                 {% endfor %}
@@ -374,7 +374,7 @@
                                     <div class="actions anchor-target" id="match-{{ block.match_index }}-top" style="padding: 14px 14px 0;">
                                         <a
                                             class="button-link secondary-button"
-                                            href="/?name={{ selected_name }}&search_form=1&query={{ form_data.query|urlencode }}&thread_limit={{ form_data.thread_limit }}&context={{ form_data.context }}&max_results={{ form_data.max_results }}&regex_group={{ form_data.regex_group|urlencode }}&expanded_match={{ block.match_index }}&extra_before={{ block.next_extra_before }}&extra_after={{ form_data.extra_after if block.is_expanded else 0 }}{% if form_data.ignore_case %}&ignore_case=on{% endif %}{% if form_data.regex %}&regex=on{% endif %}{% if form_data.most_recent %}&most_recent=on{% endif %}#match-{{ block.match_index }}-top"
+                                            href="/?name={{ selected_name|urlencode }}&search_form=1&query={{ form_data.query|urlencode }}&thread_limit={{ form_data.thread_limit }}&context={{ form_data.context }}&max_results={{ form_data.max_results }}&regex_group={{ form_data.regex_group|urlencode }}&expanded_match={{ block.match_index }}&extra_before={{ block.next_extra_before }}&extra_after={{ form_data.extra_after if block.is_expanded else 0 }}{% if form_data.ignore_case %}&ignore_case=on{% endif %}{% if form_data.regex %}&regex=on{% endif %}{% if form_data.most_recent %}&most_recent=on{% endif %}#match-{{ block.match_index }}-top"
                                         >
                                             Load {{ search_context_increment }} earlier messages
                                         </a>
@@ -397,7 +397,7 @@
                                     <div class="actions anchor-target" id="match-{{ block.match_index }}-bottom" style="padding: 0 14px 14px;">
                                         <a
                                             class="button-link secondary-button"
-                                            href="/?name={{ selected_name }}&search_form=1&query={{ form_data.query|urlencode }}&thread_limit={{ form_data.thread_limit }}&context={{ form_data.context }}&max_results={{ form_data.max_results }}&regex_group={{ form_data.regex_group|urlencode }}&expanded_match={{ block.match_index }}&extra_before={{ form_data.extra_before if block.is_expanded else 0 }}&extra_after={{ block.next_extra_after }}{% if form_data.ignore_case %}&ignore_case=on{% endif %}{% if form_data.regex %}&regex=on{% endif %}{% if form_data.most_recent %}&most_recent=on{% endif %}#match-{{ block.match_index }}-top"
+                                            href="/?name={{ selected_name|urlencode }}&search_form=1&query={{ form_data.query|urlencode }}&thread_limit={{ form_data.thread_limit }}&context={{ form_data.context }}&max_results={{ form_data.max_results }}&regex_group={{ form_data.regex_group|urlencode }}&expanded_match={{ block.match_index }}&extra_before={{ form_data.extra_before if block.is_expanded else 0 }}&extra_after={{ block.next_extra_after }}{% if form_data.ignore_case %}&ignore_case=on{% endif %}{% if form_data.regex %}&regex=on{% endif %}{% if form_data.most_recent %}&most_recent=on{% endif %}#match-{{ block.match_index }}-top"
                                         >
                                             Load {{ search_context_increment }} later messages
                                         </a>
